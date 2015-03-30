@@ -16,7 +16,7 @@
   
   <scm>
     <connection>scm:git:https://github.com/jdcasey/partyline.git</connection>
-    <developerConnection>scm:git:git@github:jdcsaey/partyline.git</developerConnection>
+    <developerConnection>scm:git:git@github.com:jdcasey/partyline.git</developerConnection>
     <url>https://github.com/jdcasey/partyline</url>
   </scm>
 
