@@ -1,16 +1,28 @@
+/*******************************************************************************
+* Copyright (c) 2015 Red Hat, Inc.
+* All rights reserved. This program and the accompanying materials
+* are made available under the terms of the GNU Public License v3.0
+* which accompanies this distribution, and is available at
+* http://www.gnu.org/licenses/gpl.html
+*
+* Contributors:
+* Red Hat, Inc. - initial API and implementation
+******************************************************************************/
 package org.commonjava.util.partyline;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.commonjava.util.partyline.JoinableOutputStream;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -18,7 +30,7 @@ import org.junit.rules.TestName;
 
 public class JoinableOutputStreamTest
 {
-    private static final int COUNT = 20000;
+    private static final int COUNT = 2000;
 
     @Rule
     public TemporaryFolder temp = new TemporaryFolder();
@@ -46,6 +58,37 @@ public class JoinableOutputStreamTest
         System.out.println( lines );
 
         assertThat( lines.size(), equalTo( COUNT ) );
+    }
+
+    @Test
+    public void writeToFileInPresenceOfSlowRawRead()
+        throws Exception
+    {
+        final File file = temp.newFile();
+        final List<String> lines = new ArrayList<>();
+        for ( int i = 0; i < COUNT; i++ )
+        {
+            lines.add( ">" + Integer.toString( i ) );
+        }
+
+        FileUtils.writeLines( file, lines );
+
+        System.out.println( "Original file length: " + file.length() );
+
+        final CountDownLatch latch = new CountDownLatch( 2 );
+        startTimedRawRead( file, 0, 1, -1, latch );
+
+        final JoinableOutputStream stream = startTimedWrite( file, 1, latch );
+
+        System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
+        latch.await();
+
+        System.out.println( "File length: " + file.length() );
+
+        final List<String> result = FileUtils.readLines( file );
+        System.out.println( result );
+
+        assertThat( result.size(), equalTo( COUNT ) );
     }
 
     @Test
@@ -92,7 +135,7 @@ public class JoinableOutputStreamTest
     {
         final CountDownLatch latch = new CountDownLatch( 2 );
         final JoinableOutputStream stream = startTimedWrite( 1, latch );
-        startRead( 0, 10000, stream, latch );
+        startRead( 0, -1, 10000, stream, latch );
         //        startRead( 500, stream, latch );
 
         System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
@@ -101,13 +144,24 @@ public class JoinableOutputStreamTest
 
     private void startRead( final long initialDelay, final JoinableOutputStream stream, final CountDownLatch latch )
     {
-        startRead( initialDelay, -1, stream, latch );
+        startRead( initialDelay, -1, -1, stream, latch );
     }
 
-    private void startRead( final long initialDelay, final long closeDelay, final JoinableOutputStream stream,
+    private void startRead( final long initialDelay, final long readDelay, final long closeDelay,
+                            final JoinableOutputStream stream,
                             final CountDownLatch latch )
     {
-        final Thread t = new Thread( new AsyncFileReader( initialDelay, closeDelay, stream, latch ) );
+        final Thread t = new Thread( new AsyncFileReader( initialDelay, readDelay, closeDelay, stream, latch ) );
+        t.setName( name.getMethodName() + "/reader" + readers++ );
+        t.setDaemon( true );
+        t.start();
+    }
+
+    private void startTimedRawRead( final File file, final long initialDelay, final long readDelay,
+                                    final long closeDelay,
+                                    final CountDownLatch latch )
+    {
+        final Thread t = new Thread( new AsyncFileReader( initialDelay, readDelay, closeDelay, file, latch ) );
         t.setName( name.getMethodName() + "/reader" + readers++ );
         t.setDaemon( true );
         t.start();
@@ -117,6 +171,12 @@ public class JoinableOutputStreamTest
         throws Exception
     {
         final File file = temp.newFile();
+        return startTimedWrite( file, delay, latch );
+    }
+
+    private JoinableOutputStream startTimedWrite( final File file, final long delay, final CountDownLatch latch )
+        throws Exception
+    {
         final JoinableOutputStream stream = new JoinableOutputStream( file );
 
         final Thread t = new Thread( new TimedFileWriter( stream, delay, latch ) );
@@ -139,18 +199,38 @@ public class JoinableOutputStreamTest
 
         private final long closeDelay;
 
-        public AsyncFileReader( final long initialDelay, final long closeDelay, final JoinableOutputStream stream,
+        private final File file;
+
+        private final long readDelay;
+
+        public AsyncFileReader( final long initialDelay, final long readDelay, final long closeDelay,
+                                final JoinableOutputStream stream,
                                 final CountDownLatch latch )
         {
             this.initialDelay = initialDelay;
+            this.readDelay = readDelay;
             this.closeDelay = closeDelay;
             this.stream = stream;
             this.latch = latch;
+            this.file = null;
+        }
+
+        public AsyncFileReader( final long initialDelay, final long readDelay, final long closeDelay, final File file,
+                                final CountDownLatch latch )
+        {
+            this.initialDelay = initialDelay;
+            this.readDelay = readDelay;
+            this.closeDelay = closeDelay;
+            this.file = file;
+            this.latch = latch;
+            this.stream = null;
         }
 
         @Override
         public void run()
         {
+            System.out.println( Thread.currentThread()
+                                      .getName() + ": Waiting " + initialDelay + "ms to initialize read." );
             try
             {
                 Thread.sleep( initialDelay );
@@ -163,9 +243,36 @@ public class JoinableOutputStreamTest
             InputStream inStream = null;
             try
             {
-                inStream = stream.joinStream();
-                if ( closeDelay > -1 )
+                if ( stream != null )
                 {
+                    inStream = stream.joinStream();
+                }
+                else
+                {
+                    inStream = new FileInputStream( file );
+                }
+                System.out.println( Thread.currentThread()
+                                          .getName() + ": Opened read stream" );
+
+                if ( readDelay > -1 )
+                {
+                    System.out.println( Thread.currentThread()
+                                              .getName() + ": Reading with " + readDelay + "ms between each byte." );
+
+                    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    int read = -1;
+                    while ( ( read = inStream.read() ) > -1 )
+                    {
+                        baos.write( read );
+                        Thread.sleep( readDelay );
+                    }
+
+                    System.out.println( baos );
+                }
+                else if ( closeDelay > -1 )
+                {
+                    System.out.println( Thread.currentThread()
+                                              .getName() + ": Reading with total delay of " + closeDelay + "ms." );
                     final long end = System.currentTimeMillis() + closeDelay;
                     while ( inStream.read() > -1 && System.currentTimeMillis() < end )
                     {
@@ -184,6 +291,8 @@ public class JoinableOutputStreamTest
                         + lines.size(), lines.size(), equalTo( COUNT ) );
                 }
 
+                System.out.println( Thread.currentThread()
+                                          .getName() + ": Read done." );
             }
             catch ( final Exception e )
             {
@@ -217,8 +326,12 @@ public class JoinableOutputStreamTest
         @Override
         public void run()
         {
+            System.out.println( Thread.currentThread()
+                                      .getName() + ": initializing write." );
             try
             {
+                System.out.println( Thread.currentThread()
+                                          .getName() + ": Writing with per-line delay of: " + delay );
                 for ( int i = 0; i < COUNT; i++ )
                 {
                     //                    System.out.println( "Sleeping: " + delay );
@@ -228,6 +341,9 @@ public class JoinableOutputStreamTest
                     stream.write( String.format( "%d\n", i )
                                         .getBytes() );
                 }
+
+                System.out.println( Thread.currentThread()
+                                          .getName() + ": write done." );
             }
             catch ( final Exception e )
             {
