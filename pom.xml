@@ -15,11 +15,19 @@
   <name>partyline</name>
   
   <scm>
-    <connection>https://github.com/jdcasey/partyline.git</connection>
-    <developerConnection>git@github:jdcsaey/partyline.git</developerConnection>
+    <connection>scm:git:https://github.com/jdcasey/partyline.git</connection>
+    <developerConnection>scm:git:git@github:jdcsaey/partyline.git</developerConnection>
     <url>https://github.com/jdcasey/partyline</url>
   </scm>
 
+  <distributionManagement>
+    <snapshotRepository>
+      <id>local-snapshots</id>
+      <name>Local Snapshots</name>
+      <url>${repo.snapshots}</url>
+    </snapshotRepository>
+  </distributionManagement>
+  
   <dependencyManagement>
     <dependencies>
       <dependency>
