@@ -9,7 +9,8 @@ PartyLine solves this by maintaining a RandomAccessFile and associated FileChann
 ### Example Usage
 
     InputStream trunkIn = // wherever you get your content...
-    JoinableOutputStream out = new JoinableOutputStream(new File("/path/to/my.file.txt"));
+    File f = new File("/path/to/my.file.txt");
+    JoinableOutputStream out = new JoinableOutputStream(f);
     
     CountDownLatch cdl = new CountDownLatch(2);
     Runnable r = new Runnable(){
@@ -28,7 +29,9 @@ PartyLine solves this by maintaining a RandomAccessFile and associated FileChann
     Runnable r2 = new Runnable(){
         public void run(){
             try{
-                System.out.println(Thread.currentThread().getName()+": "+IOUtils.toString(in));
+                System.out.println(
+                  Thread.currentThread().getName() + ": " + IOUtils.toString(in)
+                );
             }catch(IOException e){
                 e.printStackTrace();
             }
@@ -68,13 +71,15 @@ from performing lower-level operations while something like the joinable output 
     
     OutputStream out2 = mgr.openOutputStream(f); // waits until 'out' above closes.
     
-    // waits for in to close...in this example, infinitely (unless another thread closes 'in')
+    // waits for in to close...in this example, infinitely (unless another thread 
+    // closes 'in')
     out.close();
     
     // Success! It was unlocked by the close() operation above.
     OutputStream out2 = mgr.openOutputStream(f);
     
-    mgr.lock(f); // returns false, because there is already an active stream to that file
+    //returns false, because there is already an active stream to that file
+    mgr.lock(f);
     
     File f2 = new File("/path/to/another.file.txt");
     mgr.lock(f2); // return true.
