@@ -28,7 +28,7 @@ PartyLine solves this by maintaining a RandomAccessFile and associated FileChann
     Runnable r2 = new Runnable(){
         public void run(){
             try{
-                System.out.println(Thread.currentThread().getName() + ": " + IOUtils.toString(in));
+                System.out.println(Thread.currentThread().getName()+": "+IOUtils.toString(in));
             }catch(IOException e){
                 e.printStackTrace();
             }
@@ -51,18 +51,28 @@ from performing lower-level operations while something like the joinable output 
     JoinableFileManager mgr = new JoinableFileManager();
     
     File f = new File("/path/to/my.file.txt");
-    OutputStream out = mgr.openOutputStream(f); // Really a JoinableOutputStream
-    InputStream in = mgr.openInputStream(f); // Really a JoinInputStream related to the above output stream
+    
+    // Really a JoinableOutputStream
+    OutputStream out = mgr.openOutputStream(f);
+    
+    // Really a JoinInputStream related to the above output stream
+    InputStream in = mgr.openInputStream(f);
     
     // do stuff, or...
     
-    boolean readLocked = mgr.isReadLocked(f); // false, you can get an InputStream joined to the current output stream.
-    boolean writeLocked = mgr.isWriteLocked(f); // true, we already have an active output stream
+    //false, you can get an InputStream joined to the current output stream.
+    boolean readLocked = mgr.isReadLocked(f);
+    
+    //true, we already have an active output stream
+    boolean writeLocked = mgr.isWriteLocked(f);
     
     OutputStream out2 = mgr.openOutputStream(f); // waits until 'out' above closes.
     
-    out.close(); // waits for in to close...in this example, infinitely (unless another thread closes 'in')
-    OutputStream out2 = mgr.openOutputStream(f); // Success! It was unlocked by the close() operation above.
+    // waits for in to close...in this example, infinitely (unless another thread closes 'in')
+    out.close();
+    
+    // Success! It was unlocked by the close() operation above.
+    OutputStream out2 = mgr.openOutputStream(f);
     
     mgr.lock(f); // returns false, because there is already an active stream to that file
     
