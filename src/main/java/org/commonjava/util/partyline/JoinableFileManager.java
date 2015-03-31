@@ -16,6 +16,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -40,7 +41,7 @@ public class JoinableFileManager
 
     private final Map<File, JoinableOutputStream> joinableStreams = new HashMap<>();
 
-    private final Set<File> activeFiles = new HashSet<>();
+    private final Map<File, WeakReference<Thread>> activeFiles = new HashMap<>();
 
     private final Set<File> manualLocks = new HashSet<>();
 
@@ -72,11 +73,13 @@ public class JoinableFileManager
             final JoinableOutputStream out = new JoinableOutputStream( file );
             joinableStreams.put( file, out );
 
-            activeFiles.add( file );
+            logger.debug( "Locked by: {}", Thread.currentThread()
+                                                 .getName() );
+            activeFiles.put( file, new WeakReference<Thread>( Thread.currentThread() ) );
             activeFiles.notifyAll();
 
             logger.debug( "<<<OPEN OUTPUT" );
-            return new CallbackOutputStream( out, new StreamCallback( file, activeFiles, out, joinableStreams ) );
+            return new CallbackOutputStream( out, new StreamCallback( file, out ) );
         }
     }
 
@@ -117,11 +120,13 @@ public class JoinableFileManager
                     return null;
                 }
 
-                activeFiles.add( file );
+                logger.debug( "Locked by: {}", Thread.currentThread()
+                                                     .getName() );
+                activeFiles.put( file, new WeakReference<Thread>( Thread.currentThread() ) );
                 activeFiles.notifyAll();
 
-                logger.debug( "<<<OPEN INPUT (raw)" );
-                return new CallbackInputStream( new FileInputStream( file ), new StreamCallback( file, activeFiles ) );
+                logger.debug( "<<<OPEN INPUT (raw), called from:\n  {}", "disabled stacktrace" /*StringUtils.join( truncatedStackTrace(), "\n  " )*/);
+                return new CallbackInputStream( new FileInputStream( file ), new StreamCallback( file ) );
             }
         }
     }
@@ -134,13 +139,15 @@ public class JoinableFileManager
         logger.debug( ">>>LOCK: {}", file );
         synchronized ( activeFiles )
         {
-            if ( activeFiles.contains( file ) )
+            if ( getActiveThread( file ) != null )
             {
                 logger.debug( "<<<LOCK (failed)" );
                 return false;
             }
 
-            activeFiles.add( file );
+            logger.debug( "Locked by: {}", Thread.currentThread()
+                                                 .getName() );
+            activeFiles.put( file, new WeakReference<Thread>( Thread.currentThread() ) );
             activeFiles.notifyAll();
 
             manualLocks.add( file );
@@ -155,18 +162,22 @@ public class JoinableFileManager
      */
     public boolean unlock( final File file )
     {
+        // TODO: Verify the thread is the same?
         logger.debug( ">>>LOCK: {}", file );
         synchronized ( activeFiles )
         {
-            if ( !manualLocks.remove( file ) )
-            {
-                logger.debug( "<<<UNLOCK (failed)" );
-                return false;
-            }
+            manualLocks.remove( file );
+            final WeakReference<Thread> ref = activeFiles.remove( file );
+            final Thread t = ref == null ? null : ref.get();
 
-            logger.debug( "<<<UNLOCK (success)" );
-            return activeFiles.remove( file );
+            logger.debug( "Unlocked by: {}. Previously locked by: {}", Thread.currentThread()
+                                                                             .getName(),
+                          t == null ? "-NONE-" : t.getName() );
+
         }
+
+        logger.debug( "<<<UNLOCK (success)" );
+        return true;
     }
 
     /**
@@ -182,7 +193,7 @@ public class JoinableFileManager
      */
     public boolean isWriteLocked( final File file )
     {
-        return activeFiles.contains( file );
+        return getActiveThread( file ) != null;
     }
 
     /**
@@ -191,7 +202,7 @@ public class JoinableFileManager
      */
     public boolean isReadLocked( final File file )
     {
-        return activeFiles.contains( file ) && !joinableStreams.containsKey( file );
+        return getActiveThread( file ) != null && !joinableStreams.containsKey( file );
     }
 
     /**
@@ -275,10 +286,13 @@ public class JoinableFileManager
     private boolean waitForFile( final File file, final long timeout )
     {
         logger.debug( ">>>WAIT (any file activity): {}, timeout: {}", file, timeout );
-        if ( !activeFiles.contains( file ) )
+        if ( getActiveThread( file ) == null )
         {
+            logger.debug( "<<<WAIT (any file activity): Not locked" );
             return true;
         }
+
+        logger.debug( "wait called from:\n  {}", "disabled stacktrace" /*StringUtils.join( truncatedStackTrace(), "\n  " )*/);
 
         boolean proceed = false;
         //        System.out.println( "Waiting (" + ( timeout < 0 ? "indeterminate time" : timeout + "ms" ) + ") for: " + file );
@@ -286,16 +300,21 @@ public class JoinableFileManager
         final long ends = timeout < 0 ? -1 : System.currentTimeMillis() + timeout;
         while ( ends < 0 || System.currentTimeMillis() < ends )
         {
-            if ( !activeFiles.contains( file ) )
+            final Thread thread = getActiveThread( file );
+            if ( thread == null )
             {
-                //                System.out.println( "Lock cleared for: " + file );
+                logger.debug( "Lock cleared for: " + file );
                 proceed = true;
                 break;
             }
+            //            else
+            //            {
+            //                logger.debug( "Waiting for thread: {} to release lock on: {}", thread.getName(), file );
+            //            }
 
             try
             {
-                activeFiles.wait( ( timeout > 0 && timeout < 100 ) ? timeout : 100 );
+                activeFiles.wait( ( timeout > 0 && timeout < 1000 ) ? timeout : 1000 );
             }
             catch ( final InterruptedException e )
             {
@@ -309,49 +328,69 @@ public class JoinableFileManager
         return proceed;
     }
 
-    private static final class StreamCallback
+    //    private StackTraceElement[] truncatedStackTrace()
+    //    {
+    //        final StackTraceElement[] stackTrace = Thread.currentThread()
+    //                                                     .getStackTrace();
+    //
+    //        final int offset = 2;
+    //        final int desiredSize = 8;
+    //        final int size = stackTrace.length > desiredSize + offset ? desiredSize : stackTrace.length - offset;
+    //
+    //        final StackTraceElement[] elts = new StackTraceElement[size];
+    //        System.arraycopy( stackTrace, offset, elts, 0, size );
+    //
+    //        return elts;
+    //    }
+
+    private Thread getActiveThread( final File file )
+    {
+        synchronized ( activeFiles )
+        {
+            final WeakReference<Thread> ref = activeFiles.get( file );
+            return ref == null ? null : ref.get();
+        }
+    }
+
+    private final class StreamCallback
         extends AbstractStreamCallbacks
     {
         private final Logger logger = LoggerFactory.getLogger( getClass() );
 
         private final File file;
 
-        private final Set<File> active;
-
-        private final Map<File, JoinableOutputStream> joinableStreams;
-
         private JoinableOutputStream stream;
 
-        StreamCallback( final File file, final Set<File> active, final JoinableOutputStream stream,
-                        final Map<File, JoinableOutputStream> joinableStreams )
+        StreamCallback( final File file, final JoinableOutputStream stream )
         {
             this.file = file;
-            this.active = active;
             this.stream = stream;
-            this.joinableStreams = joinableStreams;
         }
 
-        StreamCallback( final File file, final Set<File> activeFiles )
+        StreamCallback( final File file )
         {
             this.file = file;
-            this.active = activeFiles;
-            this.joinableStreams = null;
         }
 
         @Override
         public void closed()
         {
             logger.debug( ">>>CLOSE/UNLOCK: {}", file );
-            synchronized ( active )
+            synchronized ( activeFiles )
             {
-                if ( active.remove( file ) )
+                final Thread t = getActiveThread( file );
+                if ( t != null )
                 {
+                    logger.debug( "Unlocking. Previously locked by: {}", Thread.currentThread()
+                                                                               .getName() );
+
+                    activeFiles.remove( file );
                     if ( stream != null )
                     {
                         joinableStreams.remove( file );
                     }
 
-                    active.notifyAll();
+                    activeFiles.notifyAll();
                 }
             }
             logger.debug( "<<<CLOSE/UNLOCK" );

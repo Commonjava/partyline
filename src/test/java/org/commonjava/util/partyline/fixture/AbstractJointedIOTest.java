@@ -44,7 +44,7 @@ public abstract class AbstractJointedIOTest
     protected Thread newThread( final String named, final Runnable runnable )
     {
         final Thread t = new Thread( runnable );
-        t.setName( name.getMethodName() + named );
+        t.setName( name.getMethodName() + "::" + named );
         t.setDaemon( true );
         return t;
     }
@@ -60,7 +60,7 @@ public abstract class AbstractJointedIOTest
         for ( final TimedTask task : tasks )
         {
             task.setLatch( latch );
-            newThread( name.getMethodName() + "/" + task.getName(), task ).start();
+            newThread( name.getMethodName() + "::" + task.getName(), task ).start();
         }
 
         try
