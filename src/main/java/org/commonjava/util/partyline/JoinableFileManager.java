@@ -24,6 +24,8 @@ import java.util.Set;
 import org.commonjava.util.partyline.callback.AbstractStreamCallbacks;
 import org.commonjava.util.partyline.callback.CallbackInputStream;
 import org.commonjava.util.partyline.callback.CallbackOutputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -33,6 +35,8 @@ import org.commonjava.util.partyline.callback.CallbackOutputStream;
  */
 public class JoinableFileManager
 {
+
+    private final Logger logger = LoggerFactory.getLogger( getClass() );
 
     private final Map<File, JoinableOutputStream> joinableStreams = new HashMap<>();
 
@@ -55,22 +59,25 @@ public class JoinableFileManager
     public OutputStream openOutputStream( final File file, final long timeout )
         throws IOException
     {
+        logger.debug( ">>>OPEN OUTPUT: {}, timeout: {}", file, timeout );
         synchronized ( activeFiles )
         {
             final boolean proceed = timeout > 0 ? waitForFile( file, timeout ) : waitForFile( file );
             if ( !proceed )
             {
+                logger.debug( "<<<OPEN OUTPUT (timeout)" );
                 return null;
             }
 
+            final JoinableOutputStream out = new JoinableOutputStream( file );
+            joinableStreams.put( file, out );
+
             activeFiles.add( file );
             activeFiles.notifyAll();
+
+            logger.debug( "<<<OPEN OUTPUT" );
+            return new CallbackOutputStream( out, new StreamCallback( file, activeFiles, out, joinableStreams ) );
         }
-
-        final JoinableOutputStream out = new JoinableOutputStream( file );
-        joinableStreams.put( file, out );
-
-        return new CallbackOutputStream( out, new StreamCallback( file, activeFiles ) );
     }
 
     /**
@@ -92,26 +99,30 @@ public class JoinableFileManager
     public InputStream openInputStream( final File file, final long timeout )
         throws FileNotFoundException, IOException
     {
-        final JoinableOutputStream joinable = joinableStreams.get( file );
-        if ( joinable != null )
+        synchronized ( activeFiles )
         {
-            return joinable.joinStream();
-        }
-        else
-        {
-            synchronized ( activeFiles )
+            logger.debug( ">>>OPEN INPUT: {}, timeout: {}", file, timeout );
+            final JoinableOutputStream joinable = joinableStreams.get( file );
+            if ( joinable != null )
+            {
+                logger.debug( "<<<OPEN INPUT (joined)" );
+                return joinable.joinStream();
+            }
+            else
             {
                 final boolean proceed = timeout > 0 ? waitForFile( file, timeout ) : waitForFile( file );
                 if ( !proceed )
                 {
+                    logger.debug( "<<<OPEN INPUT (timeout)" );
                     return null;
                 }
 
                 activeFiles.add( file );
                 activeFiles.notifyAll();
-            }
 
-            return new CallbackInputStream( new FileInputStream( file ), new StreamCallback( file, activeFiles ) );
+                logger.debug( "<<<OPEN INPUT (raw)" );
+                return new CallbackInputStream( new FileInputStream( file ), new StreamCallback( file, activeFiles ) );
+            }
         }
     }
 
@@ -120,10 +131,12 @@ public class JoinableFileManager
      */
     public boolean lock( final File file )
     {
+        logger.debug( ">>>LOCK: {}", file );
         synchronized ( activeFiles )
         {
             if ( activeFiles.contains( file ) )
             {
+                logger.debug( "<<<LOCK (failed)" );
                 return false;
             }
 
@@ -133,6 +146,7 @@ public class JoinableFileManager
             manualLocks.add( file );
         }
 
+        logger.debug( "<<<LOCK (success)" );
         return true;
     }
 
@@ -141,15 +155,26 @@ public class JoinableFileManager
      */
     public boolean unlock( final File file )
     {
+        logger.debug( ">>>LOCK: {}", file );
         synchronized ( activeFiles )
         {
             if ( !manualLocks.remove( file ) )
             {
+                logger.debug( "<<<UNLOCK (failed)" );
                 return false;
             }
 
+            logger.debug( "<<<UNLOCK (success)" );
             return activeFiles.remove( file );
         }
+    }
+
+    /**
+     * Check if a particular file has been locked externally (manually).
+     */
+    public boolean isManuallyLocked( final File file )
+    {
+        return manualLocks.contains( file );
     }
 
     /**
@@ -177,6 +202,7 @@ public class JoinableFileManager
      */
     public boolean waitForWriteUnlock( final File file, final long timeout )
     {
+        logger.debug( ">>>WAIT (write): {}, timeout: {}", file, timeout );
         synchronized ( activeFiles )
         {
             return waitForFile( file, timeout );
@@ -191,6 +217,7 @@ public class JoinableFileManager
      */
     public boolean waitForWriteUnlock( final File file )
     {
+        logger.debug( ">>>WAIT (write): {}, timeout: {}", file, -1 );
         synchronized ( activeFiles )
         {
             return waitForFile( file );
@@ -205,8 +232,10 @@ public class JoinableFileManager
      */
     public boolean waitForReadUnlock( final File file, final long timeout )
     {
+        logger.debug( ">>>WAIT (read): {}, timeout: {}", file, timeout );
         if ( joinableStreams.containsKey( file ) )
         {
+            logger.debug( "<<<WAIT (read)" );
             return true;
         }
 
@@ -224,8 +253,10 @@ public class JoinableFileManager
      */
     public boolean waitForReadUnlock( final File file )
     {
+        logger.debug( ">>>WAIT (read): {}, timeout: {}", file, -1 );
         if ( joinableStreams.containsKey( file ) )
         {
+            logger.debug( "<<<WAIT (read)" );
             return true;
         }
 
@@ -243,6 +274,7 @@ public class JoinableFileManager
 
     private boolean waitForFile( final File file, final long timeout )
     {
+        logger.debug( ">>>WAIT (any file activity): {}, timeout: {}", file, timeout );
         if ( !activeFiles.contains( file ) )
         {
             return true;
@@ -273,33 +305,56 @@ public class JoinableFileManager
             }
         }
 
+        logger.debug( "<<<WAIT (any file activity): {}", proceed );
         return proceed;
     }
 
     private static final class StreamCallback
         extends AbstractStreamCallbacks
     {
+        private final Logger logger = LoggerFactory.getLogger( getClass() );
+
         private final File file;
 
         private final Set<File> active;
 
-        StreamCallback( final File file, final Set<File> active )
+        private final Map<File, JoinableOutputStream> joinableStreams;
+
+        private JoinableOutputStream stream;
+
+        StreamCallback( final File file, final Set<File> active, final JoinableOutputStream stream,
+                        final Map<File, JoinableOutputStream> joinableStreams )
         {
             this.file = file;
             this.active = active;
+            this.stream = stream;
+            this.joinableStreams = joinableStreams;
+        }
+
+        StreamCallback( final File file, final Set<File> activeFiles )
+        {
+            this.file = file;
+            this.active = activeFiles;
+            this.joinableStreams = null;
         }
 
         @Override
         public void closed()
         {
+            logger.debug( ">>>CLOSE/UNLOCK: {}", file );
             synchronized ( active )
             {
                 if ( active.remove( file ) )
                 {
+                    if ( stream != null )
+                    {
+                        joinableStreams.remove( file );
+                    }
+
                     active.notifyAll();
                 }
             }
+            logger.debug( "<<<CLOSE/UNLOCK" );
         }
     }
-
 }
