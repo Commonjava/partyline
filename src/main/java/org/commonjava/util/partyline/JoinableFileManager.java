@@ -37,7 +37,7 @@ public class JoinableFileManager
     private final Map<File, JoinableOutputStream> joinableStreams = new HashMap<>();
 
     private final Set<File> activeFiles = new HashSet<>();
-    
+
     private final Set<File> manualLocks = new HashSet<>();
 
     /**
@@ -46,9 +46,19 @@ public class JoinableFileManager
     public OutputStream openOutputStream( final File file )
         throws IOException
     {
+        return openOutputStream( file, -1 );
+    }
+
+    /**
+     * If the file isn't marked as active, create a new {@link JoinableOutputStream} to the specified file and pass it back to the user. If the file is locked, wait for the specified milliseconds before giving up.
+     */
+    public OutputStream openOutputStream( final File file, final long timeout )
+        throws IOException
+    {
         synchronized ( activeFiles )
         {
-            if ( !waitForFile( file ) )
+            final boolean proceed = timeout > 0 ? waitForFile( file, timeout ) : waitForFile( file );
+            if ( !proceed )
             {
                 return null;
             }
@@ -62,13 +72,24 @@ public class JoinableFileManager
 
         return new CallbackOutputStream( out, new StreamCallback( file, activeFiles ) );
     }
-    
+
     /**
      * If there is an active {@link JoinableOutputStream}, call {@link JoinableOutputStream#joinStream()} and return it to the user. Otherwise, open
      * a new {@link FileInputStream} to the specified file, wrap it in a {@link CallbackInputStream} to notify this manager when it closes, and pass
      * the result back to the user.
      */
     public InputStream openInputStream( final File file )
+        throws FileNotFoundException, IOException
+    {
+        return openInputStream( file, -1 );
+    }
+
+    /**
+     * If there is an active {@link JoinableOutputStream}, call {@link JoinableOutputStream#joinStream()} and return it to the user. Otherwise, open
+     * a new {@link FileInputStream} to the specified file, wrap it in a {@link CallbackInputStream} to notify this manager when it closes, and pass
+     * the result back to the user. If the file is locked for reads, wait for the specified milliseconds before giving up.
+     */
+    public InputStream openInputStream( final File file, final long timeout )
         throws FileNotFoundException, IOException
     {
         final JoinableOutputStream joinable = joinableStreams.get( file );
@@ -80,7 +101,8 @@ public class JoinableFileManager
         {
             synchronized ( activeFiles )
             {
-                if ( !waitForFile( file ) )
+                final boolean proceed = timeout > 0 ? waitForFile( file, timeout ) : waitForFile( file );
+                if ( !proceed )
                 {
                     return null;
                 }
@@ -107,7 +129,7 @@ public class JoinableFileManager
 
             activeFiles.add( file );
             activeFiles.notifyAll();
-            
+
             manualLocks.add( file );
         }
 
@@ -129,7 +151,7 @@ public class JoinableFileManager
             return activeFiles.remove( file );
         }
     }
-    
+
     /**
      * Check if the specified file is locked against write operations. Files are write-locked if any other file access is active.
      */
@@ -188,24 +210,34 @@ public class JoinableFileManager
 
     private boolean waitForFile( final File file, final long timeout )
     {
-        boolean proceed = true;
-        try
+        if ( !activeFiles.contains( file ) )
         {
-            if ( timeout < 0 )
-            {
-                wait();
-            }
-            else
-            {
-                wait( timeout );
-                proceed = !activeFiles.contains( file );
-            }
+            return true;
         }
-        catch ( final InterruptedException e )
+
+        boolean proceed = false;
+        //        System.out.println( "Waiting (" + ( timeout < 0 ? "indeterminate time" : timeout + "ms" ) + ") for: " + file );
+
+        final long ends = timeout < 0 ? -1 : System.currentTimeMillis() + timeout;
+        while ( ends < 0 || System.currentTimeMillis() < ends )
         {
-            Thread.currentThread()
-                  .interrupt();
-            proceed = false;
+            if ( !activeFiles.contains( file ) )
+            {
+                //                System.out.println( "Lock cleared for: " + file );
+                proceed = true;
+                break;
+            }
+
+            try
+            {
+                activeFiles.wait( ( timeout > 0 && timeout < 100 ) ? timeout : 100 );
+            }
+            catch ( final InterruptedException e )
+            {
+                Thread.currentThread()
+                      .interrupt();
+                proceed = false;
+            }
         }
 
         return proceed;
