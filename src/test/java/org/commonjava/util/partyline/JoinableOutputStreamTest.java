@@ -25,6 +25,7 @@ import org.apache.commons.io.FileUtils;
 import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class JoinableOutputStreamTest
@@ -51,6 +52,7 @@ public class JoinableOutputStreamTest
     }
 
     @Test
+    @Ignore( "This should NOT work...and the file manager should prevent it" )
     public void writeToFileInPresenceOfSlowRawRead()
         throws Exception
     {

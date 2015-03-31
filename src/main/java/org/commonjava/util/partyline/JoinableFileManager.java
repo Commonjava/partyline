@@ -184,6 +184,20 @@ public class JoinableFileManager
     }
 
     /**
+     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
+     * the file becoming available for writes.
+     * 
+     * @see #isWriteLocked(File)
+     */
+    public boolean waitForWriteUnlock( final File file )
+    {
+        synchronized ( activeFiles )
+        {
+            return waitForFile( file );
+        }
+    }
+
+    /**
      * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
      * the file becoming available for reads. If a {@link JoinableOutputStream} is available for the file, don't wait (immediately return true).
      * 
@@ -199,6 +213,25 @@ public class JoinableFileManager
         synchronized ( activeFiles )
         {
             return waitForFile( file, timeout );
+        }
+    }
+
+    /**
+     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
+     * the file becoming available for reads. If a {@link JoinableOutputStream} is available for the file, don't wait (immediately return true).
+     * 
+     * @see #isReadLocked(File)
+     */
+    public boolean waitForReadUnlock( final File file )
+    {
+        if ( joinableStreams.containsKey( file ) )
+        {
+            return true;
+        }
+
+        synchronized ( activeFiles )
+        {
+            return waitForFile( file );
         }
     }
 
