@@ -6,7 +6,7 @@ defaults:
     values:
       layout: "slate"
 
-title: "Commonjava@GitHub"
-tagline: "Documentation for Commonjava projects available on GitHub"
+title: "Commonjava :: Partyline"
+tagline: "Joinable File I/O Streams"
 owner: "John Casey"
 ownerEmail: jdcasey@commonjava.org
