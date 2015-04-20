@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta name="description" content="Partyline : Joinable File I/O Streams">
+
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+
+    <title>Partyline</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/Commonjava/partyline">View on GitHub</a>
+
+          <h1 id="project_title">Partyline</h1>
+          <h2 id="project_tagline">Joinable File I/O Streams</h2>
+
+            <section id="downloads">
+              <a class="zip_download_link" href="https://github.com/Commonjava/partyline/zipball/master">Download this project as a .zip file</a>
+              <a class="tar_download_link" href="https://github.com/Commonjava/partyline/tarball/master">Download this project as a tar.gz file</a>
+            </section>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+        <h3>
+<a id="why-wait" class="anchor" href="#why-wait" aria-hidden="true"><span class="octicon octicon-link"></span></a>Why Wait?</h3>
+
+<p>Partyline is a library for providing read access to files that are still being written. This is particularly useful for server applications (like <a href="../aprox/">AProx</a>) which cache remote files and provide them to users on demand. Without joinable I/O, such users must wait for the file to cache fully before it it served to them. With joinable I/O, the user starts receiving data as soon as the server application starts writing it to the cache file. Even users that request the file after the original cache-triggering event, but before the file caches completely, can join the I/O stream and "catch up" to the current download progress.</p>
+
+<p>While this logic may not seem so mysterious to some developers, it's useful to have a tested library for this functionality to make it reusable with minimal fuss or risk of threading error.</p>
+
+<h3>
+<a id="like-outputstream-but-fancier" class="anchor" href="#like-outputstream-but-fancier" aria-hidden="true"><span class="octicon octicon-link"></span></a>Like <code>OutputStream</code>, but Fancier!</h3>
+
+<p>The core of Partyline is the <code>JoinableOutputStream</code>, which is a fancy implementation of <code>OutputStream</code> that wraps a <code>RandomAccessFile</code> and a set of synchronized <code>InputStream</code> implementations. As data is written, it fills an internal buffer. When the buffer fills, the <code>flush()</code> method is called, and the stream writes the data buffer to the <code>RandomAccessFile</code> along with any waiting, synchronized <code>InputStream</code> instances that it tracks. When the <code>close()</code> method of the stream is called, it waits for any synchronized <code>InputStream</code>s to finish reading (or close), then closes down the underlying <code>RandomAccessFile</code>. The byte count written to the <code>RandomAccessFile</code> is stored to prevent synchronized streams from reading beyond the data written when joining a stream already in progress.</p>
+
+<p>Joining a stream (obtaining an <code>InputStream</code> from an existing <code>JoinableOutputStream</code>) is simple. Just call the <code>joinStream()</code> method on the existing output stream instance!</p>
+
+<h3>
+<a id="keeping-your-ducksstreams-in-a-row" class="anchor" href="#keeping-your-ducksstreams-in-a-row" aria-hidden="true"><span class="octicon octicon-link"></span></a>Keeping Your <del>Ducks</del>Streams in a Row</h3>
+
+<p>Obviously, having an <code>OutputStream</code> that is joinable for multiple readers is useful. However, if you're implementing a server application you don't really want to have to manage all those streams just so you can join them for reads. But if you don't, you can't really use joinable I/O at all!</p>
+
+<p>Relax, that's where <code>JoinableFileManager</code> comes in. This file manager tracks read and write locks on a <code>File</code> by <code>File</code> basis, whether they're manual locks, locks created without join support (read before write starts), or joinable locks (write locks that allow concurrent reads). It also supports waiting for a lock to become available.</p>
+
+<p>The following conditions are managed:</p>
+
+<h4>
+<a id="first-writer" class="anchor" href="#first-writer" aria-hidden="true"><span class="octicon octicon-link"></span></a>First Writer</h4>
+
+<p>If a user calls <code>openOutputStream(..)</code> and no other stream is reading or writing to that file, a new <code>JoinableOutputStream</code> is created and passed back to the user. The file is locked for writing at this point, but new readers are allowed.</p>
+
+<h4>
+<a id="first-reader" class="anchor" href="#first-reader" aria-hidden="true"><span class="octicon octicon-link"></span></a>First Reader</h4>
+
+<p>If a user calls <code>openInputStream(..)</code> and no other stream is reading or writing that file, a new <code>FileInputStream</code> is created and passed back to the user. The file is locked for writing and reading at this point, because the stream is not joinable, and its content must be preserved while the user is reading it.</p>
+
+<h4>
+<a id="second-writer" class="anchor" href="#second-writer" aria-hidden="true"><span class="octicon octicon-link"></span></a>Second Writer</h4>
+
+<p>If a user calls <code>openOutputStream(..)</code> and an existing output stream is already open for that file, the new call will wait for the write lock to become available. This method has two forms: one that waits indefinitely, and another that waits for a specified millisecond timeout before returning null. No exception is thrown because a timeout due to a long usage time by the first writer is not an exceptional case.</p>
+
+<h4>
+<a id="first-reader-with-existing-writer" class="anchor" href="#first-reader-with-existing-writer" aria-hidden="true"><span class="octicon octicon-link"></span></a>First Reader with Existing Writer</h4>
+
+<p>If a user calls <code>openInputStream(..)</code> and an existing output stream is already open for that file, the new call will retrieve the <code>JoinableOutputStream</code> for the file and call <code>joinStream()</code> to obtain a new <code>InputStream</code> to return to the caller.</p>
+
+<h4>
+<a id="second-reader" class="anchor" href="#second-reader" aria-hidden="true"><span class="octicon octicon-link"></span></a>Second Reader</h4>
+
+<p>Calling <code>openInputStream(..)</code> for a file that has an existing read lock but no write lock (this is not a joinable stream) results in behavior similar to the second call to <code>openOutputStream(..)</code>, described above. The method has two variations, one that waits indefinitely for the first read stream to close, and the second that will wait a specified number of milliseconds before giving up and returning null. This is not considered an exceptional case, so null is used rather than throwing an exception.</p>
+
+<h4>
+<a id="manual-lock--unlock" class="anchor" href="#manual-lock--unlock" aria-hidden="true"><span class="octicon octicon-link"></span></a>Manual Lock / Unlock</h4>
+
+<p>Users can instead notify the <code>JoinableFileManager</code> that they are working with the file outside of the file manager's ability to track it. Sometimes this is useful when integrating with other libraries that construct and use <code>File</code> instances from some path calculation, for example.</p>
+
+<p>If this happens, the application can call the <code>lock(..)</code> method to prevent any read or write activity from happening via the file manager. When the external logic completes, the application must call the <code>unlock(..)</code> method to remove the read and write locks and allow normal access again.</p>
+
+<h4>
+<a id="waiting-for-lock-availability" class="anchor" href="#waiting-for-lock-availability" aria-hidden="true"><span class="octicon octicon-link"></span></a>Waiting for Lock Availability</h4>
+
+<p>The application can synchronize on file accesses that are mediated by the <code>JoinableFileManager</code> through one of the <code>waitFor*Unlock(..)</code> methods (<code>waitForReadUnlock(..)</code> and <code>waitForWriteUnlock(..)</code>). As above, these methods have variations that allow indefinite waiting, or waiting for a specified millisecond timeout. They return a <code>boolean</code> denoting whether the lock is available. If <code>false</code>, the method timed out.</p>
+
+<h3>
+<a id="well-call-you-back" class="anchor" href="#well-call-you-back" aria-hidden="true"><span class="octicon octicon-link"></span></a>We'll Call You (Back)</h3>
+
+<p>Sometimes it's critical for an application to perform some sort of clean-up action when a file is closed. For instance, servers that cache content often want to download to a temporary file then rename it when the download completes, to prevent the possibility of serving partial content as if it were a complete file. </p>
+
+<p>Partyline supports this through its <code>CallbackInputStream</code> and <code>CallbackOutputStream</code> wrappers. Each of these has a constructor that accepts the appropriate type of stream (to wrap), and an instance of <code>StreamCallbacks</code>. Partyline also implements an abstract form of <code>StreamCallbacks</code> (<code>AbstractStreamCallbacks</code>), which provides default / null implementations of the methods, so the user only has to implement desired methods.</p>
+
+<p><code>StreamCallbacks</code> has two methods: <code>flushed()</code> and <code>closed()</code>. Obviously, when used in <code>CallbackInputStream</code> only the <code>closed()</code> method is actually used.</p>
+      </section>
+    </div>
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">Partyline maintained by <a href="https://github.com/Commonjava">Commonjava</a></p>
+        <p>Published with <a href="https://pages.github.com">GitHub Pages</a></p>
+      </footer>
+    </div>
+
+    
+
+  </body>
+</html>
