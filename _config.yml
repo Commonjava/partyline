@@ -7,7 +7,7 @@ defaults:
       layout: "slate"
 
 siteTitle: "Commonjava"
-projectTitle: " :: Partyline"
+projectTitle: "Partyline"
 tagline: "Joinable File I/O Streams"
 owner: "John Casey"
 ownerEmail: jdcasey@commonjava.org
