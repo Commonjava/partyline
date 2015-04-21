@@ -13,7 +13,7 @@ The core of Partyline is the `JoinableOutputStream`, which is a fancy implementa
 
 Joining a stream (obtaining an `InputStream` from an existing `JoinableOutputStream`) is simple. Just call the `joinStream()` method on the existing output stream instance!
 
-### Keeping Your Ducks^W Streams in a Row
+### Keeping Your ~~Ducks~~Streams in a Row
 
 Obviously, having an `OutputStream` that is joinable for multiple readers is useful. However, if you're implementing a server application you don't really want to have to manage all those streams just so you can join them for reads. But if you don't, you can't really use joinable I/O at all!
 
