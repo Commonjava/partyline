@@ -160,7 +160,7 @@ public class JoinableOutputStreamTest
         System.out.println( "output closed at: " + timings.get( out ) );
 
         assertThat( "input stream (" + timings.get( in ) + ") should have closed before output stream ("
-                        + timings.get( out ) + ")", timings.get( in ) < timings.get( out ), equalTo( true ) );
+                        + timings.get( out ) + ")", timings.get( in ) <= timings.get( out ), equalTo( true ) );
     }
 
     @Test
@@ -181,9 +181,9 @@ public class JoinableOutputStreamTest
         System.out.println( "input 2 closed at: " + timings.get( in2 ) );
         System.out.println( "output closed at: " + timings.get( out ) );
 
-        assertThat( timings.get( in ) < timings.get( out ), equalTo( true ) );
-        assertThat( timings.get( in ) < timings.get( in2 ), equalTo( true ) );
-        assertThat( timings.get( in2 ) < timings.get( out ), equalTo( true ) );
+        assertThat( timings.get( in ) <= timings.get( out ), equalTo( true ) );
+        assertThat( timings.get( in ) <= timings.get( in2 ), equalTo( true ) );
+        assertThat( timings.get( in2 ) <= timings.get( out ), equalTo( true ) );
     }
 
     public static final class WaitThenCloseOutputStream
