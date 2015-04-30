@@ -1,18 +1,13 @@
-/**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/*******************************************************************************
+* Copyright (c) 2015 ${owner}
+* All rights reserved. This program and the accompanying materials
+* are made available under the terms of the GNU Public License v3.0
+* which accompanies this distribution, and is available at
+* http://www.gnu.org/licenses/gpl.html
+*
+* Contributors:
+* ${owner} - initial API and implementation
+******************************************************************************/
 /*******************************************************************************
 * Copyright (c) 2015 Red Hat, Inc.
 * All rights reserved. This program and the accompanying materials
@@ -96,14 +91,36 @@ public class JoinableFileManagerTest
 
         final OpenOutputStream secondRunnable = new OpenOutputStream( f, -1 );
         final Map<String, Long> timings =
-            testTimings( new TimedTask( first, new OpenOutputStream( f, SHORT_TIMEOUT ) ),
-                         new TimedTask( second, secondRunnable ) );
+            testTimings( 7, new TimedTask( first, new OpenOutputStream( f, 100 ) ), new TimedTask( second,
+                                                                                                   secondRunnable ) );
 
         System.out.println( first + " completed at: " + timings.get( first ) );
         System.out.println( second + " completed at: " + timings.get( second ) );
 
         IOUtils.closeQuietly( secondRunnable );
-        assertThat( timings.get( first ) < timings.get( second ), equalTo( true ) );
+        assertThat( first + " completed at: " + timings.get( first ) + "\n" + second + " completed at: "
+                        + timings.get( second ) + "\nFirst should complete before second.",
+                    timings.get( first ) < timings.get( second ), equalTo( true ) );
+    }
+
+    @Test
+    public void verifyReportingDaemonWorks()
+        throws Exception
+    {
+        final File f = temp.newFile();
+
+        final String first = "first";
+        final String second = "second";
+
+        mgr.startReporting( 0, 1000 );
+
+        final OpenOutputStream secondRunnable = new OpenOutputStream( f, -1 );
+        final Map<String, Long> timings = testTimings( new TimedTask( first, new OpenOutputStream( f, 10000 ) ) );
+
+        System.out.println( first + " completed at: " + timings.get( first ) );
+        System.out.println( second + " completed at: " + timings.get( second ) );
+
+        IOUtils.closeQuietly( secondRunnable );
     }
 
     @Test
@@ -151,15 +168,18 @@ public class JoinableFileManagerTest
         final String output = "output";
 
         final Map<String, Long> timings =
-            testTimings( new TimedTask( lockUnlock, new LockThenUnlockFile( f, 100 ) ), new TimedTask( output,
-                                                                                                      outputRunnable ) );
+            testTimings( 10, new TimedTask( lockUnlock, new LockThenUnlockFile( f, 100 ) ),
+                         new TimedTask( output, outputRunnable ) );
 
         IOUtils.closeQuietly( outputRunnable );
 
         System.out.println( "Lock-Unlock completed at: " + timings.get( lockUnlock ) );
         System.out.println( "OpenOutputStream completed at: " + timings.get( output ) );
 
-        assertThat( timings.get( lockUnlock ) < timings.get( output ), equalTo( true ) );
+        assertThat( "\nLock-Unlock completed at:             " + timings.get( lockUnlock ) + "\n"
+                        + "OpenOutputStream completed at: " + timings.get( output )
+                        + "\nLock-Unlock should complete first",
+                    timings.get( lockUnlock ) < timings.get( output ), equalTo( true ) );
     }
 
     private final class OpenOutputStream
