@@ -21,7 +21,7 @@
   <parent>
     <groupId>org.commonjava</groupId>
     <artifactId>commonjava</artifactId>
-    <version>6</version>
+    <version>7-SNAPSHOT</version>
   </parent>
 
   <groupId>org.commonjava.util</groupId>
@@ -42,14 +42,6 @@
     <projectOwner>Red Hat, Inc.</projectOwner>
   </properties>
 
-  <distributionManagement>
-    <snapshotRepository>
-      <id>local-snapshots</id>
-      <name>Local Snapshots</name>
-      <url>${repo.snapshots}</url>
-    </snapshotRepository>
-  </distributionManagement>
-  
   <dependencyManagement>
     <dependencies>
       <dependency>

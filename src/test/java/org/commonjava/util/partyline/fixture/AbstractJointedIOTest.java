@@ -1,18 +1,13 @@
-/**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/*******************************************************************************
+* Copyright (c) 2015 ${owner}
+* All rights reserved. This program and the accompanying materials
+* are made available under the terms of the GNU Public License v3.0
+* which accompanies this distribution, and is available at
+* http://www.gnu.org/licenses/gpl.html
+*
+* Contributors:
+* ${owner} - initial API and implementation
+******************************************************************************/
 /*******************************************************************************
 * Copyright (c) 2015 Red Hat, Inc.
 * All rights reserved. This program and the accompanying materials
@@ -64,18 +59,36 @@ public abstract class AbstractJointedIOTest
         return t;
     }
 
+    protected Map<String, Long> testTimings( final long startDelay, final TimedTask... tasks )
+    {
+        return testTimings( startDelay, Arrays.asList( tasks ) );
+    }
+
     protected Map<String, Long> testTimings( final TimedTask... tasks )
     {
-        return testTimings( Arrays.asList( tasks ) );
+        return testTimings( 2, Arrays.asList( tasks ) );
     }
 
     protected Map<String, Long> testTimings( final List<TimedTask> tasks )
+    {
+        return testTimings( 2, tasks );
+    }
+
+    protected Map<String, Long> testTimings( final long startDelay, final List<TimedTask> tasks )
     {
         final CountDownLatch latch = new CountDownLatch( tasks.size() );
         for ( final TimedTask task : tasks )
         {
             task.setLatch( latch );
             newThread( name.getMethodName() + "::" + task.getName(), task ).start();
+            try
+            {
+                Thread.sleep( startDelay );
+            }
+            catch ( final InterruptedException e )
+            {
+                Assert.fail( "Interrupted!" );
+            }
         }
 
         try

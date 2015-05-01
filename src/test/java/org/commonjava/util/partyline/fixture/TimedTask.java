@@ -43,7 +43,7 @@ public class TimedTask
     public void run()
     {
         runnable.run();
-        timestamp = System.currentTimeMillis();
+        timestamp = System.nanoTime();
         if ( latch != null )
         {
             latch.countDown();

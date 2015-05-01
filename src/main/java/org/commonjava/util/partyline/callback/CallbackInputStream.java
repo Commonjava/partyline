@@ -1,18 +1,13 @@
-/**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *         http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/*******************************************************************************
+* Copyright (c) 2015 ${owner}
+* All rights reserved. This program and the accompanying materials
+* are made available under the terms of the GNU Public License v3.0
+* which accompanies this distribution, and is available at
+* http://www.gnu.org/licenses/gpl.html
+*
+* Contributors:
+* ${owner} - initial API and implementation
+******************************************************************************/
 /*******************************************************************************
 * Copyright (c) 2015 Red Hat, Inc.
 * All rights reserved. This program and the accompanying materials
@@ -25,11 +20,12 @@
 ******************************************************************************/
 package org.commonjava.util.partyline.callback;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
 public class CallbackInputStream
-    extends InputStream
+    extends FilterInputStream
 {
 
     private final InputStream delegate;
@@ -38,76 +34,32 @@ public class CallbackInputStream
 
     public CallbackInputStream( final InputStream delegate, final StreamCallbacks callbacks )
     {
+        super( delegate );
         this.delegate = delegate;
         this.callbacks = callbacks;
-    }
-
-    @Override
-    public int available()
-        throws IOException
-    {
-        return delegate.available();
     }
 
     @Override
     public void close()
         throws IOException
     {
-        delegate.close();
-        callbacks.closed();
-    }
-
-    @Override
-    public void mark( final int readlimit )
-    {
-        delegate.mark( readlimit );
-    }
-
-    @Override
-    public boolean markSupported()
-    {
-        return delegate.markSupported();
-    }
-
-    @Override
-    public int read( final byte[] b, final int off, final int len )
-        throws IOException
-    {
-        return delegate.read( b, off, len );
-    }
-
-    @Override
-    public int read( final byte[] b )
-        throws IOException
-    {
-        return delegate.read( b );
-    }
-
-    @Override
-    public void reset()
-        throws IOException
-    {
-        delegate.reset();
-    }
-
-    @Override
-    public long skip( final long n )
-        throws IOException
-    {
-        return delegate.skip( n );
+        try
+        {
+            super.close();
+        }
+        finally
+        {
+            if ( callbacks != null )
+            {
+                callbacks.closed();
+            }
+        }
     }
 
     @Override
     public String toString()
     {
         return "Callback-wrapped: " + delegate.toString();
-    }
-
-    @Override
-    public int read()
-        throws IOException
-    {
-        return delegate.read();
     }
 
     @Override
