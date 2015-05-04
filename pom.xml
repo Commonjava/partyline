@@ -21,7 +21,7 @@
   <parent>
     <groupId>org.commonjava</groupId>
     <artifactId>commonjava</artifactId>
-    <version>7-SNAPSHOT</version>
+    <version>7</version>
   </parent>
 
   <groupId>org.commonjava.util</groupId>
@@ -32,9 +32,9 @@
   <inceptionYear>2015</inceptionYear>
   
   <scm>
-    <connection>scm:git:https://github.com/jdcasey/partyline.git</connection>
-    <developerConnection>scm:git:git@github.com:jdcasey/partyline.git</developerConnection>
-    <url>https://github.com/jdcasey/partyline</url>
+    <connection>scm:git:https://github.com/Commonjava/partyline.git</connection>
+    <developerConnection>scm:git:git@github.com:Commonjava/partyline.git</developerConnection>
+    <url>https://github.com/Commonjava/partyline</url>
     <tag>HEAD</tag>
   </scm>
   
