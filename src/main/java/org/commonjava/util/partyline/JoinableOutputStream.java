@@ -34,6 +34,10 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 
+import org.commonjava.util.partyline.callback.StreamCallbacks;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
  * and retrieve {@link InputStream} instances that can read the content as it becomes available. The {@link InputStream}s that are generated are tuned
@@ -44,11 +48,11 @@ import java.nio.channels.FileChannel.MapMode;
 public class JoinableOutputStream
     extends OutputStream
 {
+    private final Logger logger = LoggerFactory.getLogger( getClass() );
+
     private static final int CHUNK_SIZE = 1024 * 1024; // 1 mb
 
     private final FileChannel channel;
-
-    private boolean closed = false;
 
     private long written = 0;
 
@@ -62,17 +66,41 @@ public class JoinableOutputStream
 
     private final RandomAccessFile randomAccessFile;
 
+    private final StreamCallbacks callbacks;
+
+    private boolean closed = false;
+
+    private boolean joinable = true;
+
     /**
      * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
      * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
      * instances.
+     * <br/>
      * 
      * Initialize the {@link ByteBuffer} that will buffer content before sending it on to the channel (in the {@link #flush()} method).
      */
     public JoinableOutputStream( final File target )
         throws IOException
     {
+        this( target, null );
+    }
+
+    /**
+     * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
+     * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
+     * instances.
+     * <br/>
+     * Initialize the {@link ByteBuffer} that will buffer content before sending it on to the channel (in the {@link #flush()} method).
+     * <br/>
+     * If callbacks are available, use these to signal to a manager instance when the stream is flushed and when
+     * the last joined input stream (or this stream, if there are none) closes.
+     */
+    public JoinableOutputStream( final File target, final StreamCallbacks callbacks )
+        throws IOException
+    {
         this.file = target;
+        this.callbacks = callbacks;
 
         target.getParentFile()
               .mkdirs();
@@ -86,16 +114,16 @@ public class JoinableOutputStream
      * Return an {@link InputStream} instance that reads from the same {@link RandomAccessFile} that backs this output stream, and is tuned to listen
      * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
      */
-    public InputStream joinStream()
+    public synchronized InputStream joinStream()
         throws IOException
     {
-        if ( closed )
+        if ( !joinable )
         {
-            throw new IOException( "Cannot join closed IO!" );
+            throw new IOException( "Joinable output stream in the process of closing. Cannot join!" );
         }
 
-        System.out.println( "JOIN: " + Thread.currentThread()
-                                            .getName() );
+        logger.debug( "JOIN: {}", Thread.currentThread()
+                                             .getName() );
         jointCount++;
         return new JoinInputStream();
     }
@@ -138,11 +166,17 @@ public class JoinableOutputStream
         super.flush();
 
         notifyAll();
+
+        if ( callbacks != null )
+        {
+            callbacks.flushed();
+        }
     }
 
     /**
-     * Flush anything in the current buffer. Mark this stream as closed. Then, as long as there are open {@link JoinInputStream}s associated with this
-     * stream, wait (in a 100ms loop) for them to close. Finally, call {@link #reallyClose()} to shutdown the {@link FileChannel} and {@link RandomAccessFile}.
+     * Flush anything in the current buffer. Mark this stream as closed. Don't close the underlying channel if 
+     * there are still open input streams...allow their close methods to trigger that if the ref count drops 
+     * to 0.
      */
     @Override
     public synchronized void close()
@@ -151,40 +185,50 @@ public class JoinableOutputStream
         flush();
         closed = true;
 
-        while ( jointCount > 0 )
+        if ( jointCount <= 0 )
         {
-            try
-            {
-                wait( 100 );
-            }
-            catch ( final InterruptedException e )
-            {
-                break;
-            }
+            reallyClose();
         }
-
-        reallyClose();
     }
 
     /**
      * After all associated {@link JoinInputStream}s are done, close down this stream's backing storage.
      */
-    private void reallyClose()
+    private synchronized void reallyClose()
         throws IOException
     {
+        if ( callbacks != null )
+        {
+            callbacks.beforeClose();
+        }
+
+        joinable = false;
+
         channel.close();
         randomAccessFile.close();
+
+        if ( callbacks != null )
+        {
+            callbacks.closed();
+        }
     }
 
     /**
      * Callback for use in {@link JoinInputStream} to notify this stream to decrement its count of associated input streams. Then, call 
      * {@link #notifyAll()} just in case {@link #close()} is executing, so it can re-check the jointCount and see if it's time to close down
      * the backing storage.
+     * @throws IOException 
      */
     private synchronized void jointClosed()
+        throws IOException
     {
         jointCount--;
         notifyAll();
+
+        if ( jointCount <= 0 )
+        {
+            reallyClose();
+        }
     }
 
     /**

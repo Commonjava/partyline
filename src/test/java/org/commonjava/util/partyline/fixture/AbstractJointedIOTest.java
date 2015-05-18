@@ -36,6 +36,7 @@
 package org.commonjava.util.partyline.fixture;
 
 import java.io.File;
+import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -71,6 +72,15 @@ public abstract class AbstractJointedIOTest
         final Thread t = new Thread( runnable );
         t.setName( name.getMethodName() + "::" + named );
         t.setDaemon( true );
+        t.setUncaughtExceptionHandler( new UncaughtExceptionHandler()
+        {
+            @Override
+            public void uncaughtException( final Thread t, final Throwable e )
+            {
+                e.printStackTrace();
+                Assert.fail( t.getName() + ": " + e.getMessage() );
+            }
+        } );
         return t;
     }
 

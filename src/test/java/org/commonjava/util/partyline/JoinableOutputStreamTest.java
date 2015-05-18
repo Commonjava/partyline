@@ -139,7 +139,7 @@ public class JoinableOutputStreamTest
     {
         final CountDownLatch latch = new CountDownLatch( 2 );
         final JoinableOutputStream stream = startTimedWrite( 1, latch );
-        startRead( 18000, stream, latch );
+        startRead( 1000, stream, latch );
         //        startRead( 500, stream, latch );
 
         System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
@@ -160,6 +160,7 @@ public class JoinableOutputStreamTest
     }
 
     @Test
+    @Ignore( "Using reference counts to close JoinableOutputStream when last input closes." )
     public void outputStreamWaitsForSingleJoinedInputStreamToClose()
         throws Exception
     {
@@ -179,6 +180,7 @@ public class JoinableOutputStreamTest
     }
 
     @Test
+    @Ignore( "Using reference counts to close JoinableOutputStream when last input closes." )
     public void outputStreamWaitsForTwoJoinedInputStreamsToClose()
         throws Exception
     {
