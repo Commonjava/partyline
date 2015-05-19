@@ -31,6 +31,8 @@ public interface StreamCallbacks
 
     void flushed();
 
+    void beforeClose();
+
     void closed();
 
 }

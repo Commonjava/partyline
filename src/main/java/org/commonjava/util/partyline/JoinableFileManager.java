@@ -52,7 +52,6 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.commonjava.util.partyline.callback.AbstractStreamCallbacks;
 import org.commonjava.util.partyline.callback.CallbackInputStream;
-import org.commonjava.util.partyline.callback.CallbackOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -217,8 +216,12 @@ public class JoinableFileManager
                 return null;
             }
 
-            final JoinableOutputStream out = new JoinableOutputStream( file );
-            joinableStreams.put( file, out );
+            // FIXME: Nested synchronization blocks, could create deadlock!
+            final JoinableOutputStream out = new JoinableOutputStream( file, new StreamCallback( file, true ) );
+            synchronized ( joinableStreams )
+            {
+                joinableStreams.put( file, out );
+            }
 
             logger.debug( "Locked by: {}", Thread.currentThread()
                                                  .getName() );
@@ -226,7 +229,7 @@ public class JoinableFileManager
             activeFiles.notifyAll();
 
             logger.debug( "<<<OPEN OUTPUT" );
-            return new CallbackOutputStream( out, new StreamCallback( file, out ) );
+            return out;
         }
     }
 
@@ -252,7 +255,14 @@ public class JoinableFileManager
         synchronized ( activeFiles )
         {
             logger.debug( ">>>OPEN INPUT: {} with timeout: {}", file, timeout );
-            final JoinableOutputStream joinable = joinableStreams.get( file );
+
+            // FIXME: Nested synchronization blocks, could create deadlock!
+            final JoinableOutputStream joinable;
+            synchronized ( joinableStreams )
+            {
+                joinable = joinableStreams.get( file );
+            }
+
             if ( joinable != null )
             {
                 logger.debug( "<<<OPEN INPUT (joined)" );
@@ -322,6 +332,7 @@ public class JoinableFileManager
         logger.debug( ">>>MANUAL UNLOCK: {} at:\n  {}", file, stackTrace() );
         synchronized ( activeFiles )
         {
+            // TODO: atomic, no sync needed?
             if ( joinableStreams.containsKey( file ) )
             {
                 logger.warn( "Manual unlock called for file with active joinable output stream: {}", file );
@@ -386,6 +397,7 @@ public class JoinableFileManager
     public boolean isReadLocked( final File file )
     {
         final LockOwner ref = activeFiles.get( file );
+        // TODO: atomic, no sync needed?
         return ref != null && ref.isAlive() && !joinableStreams.containsKey( file );
     }
 
@@ -442,6 +454,7 @@ public class JoinableFileManager
     public boolean waitForReadUnlock( final File file, final long timeout )
     {
         logger.debug( ">>>WAIT (read): {} with timeout: {}", file, timeout );
+        // TODO: atomic, no sync needed?
         if ( joinableStreams.containsKey( file ) )
         {
             logger.debug( "<<<WAIT (read)" );
@@ -470,6 +483,7 @@ public class JoinableFileManager
     public boolean waitForReadUnlock( final File file )
     {
         logger.debug( ">>>WAIT (read): {} with timeout: {}", file, -1 );
+        // TODO: atomic, no sync needed?
         if ( joinableStreams.containsKey( file ) )
         {
             logger.debug( "<<<WAIT (read)" );
@@ -592,12 +606,12 @@ public class JoinableFileManager
 
         private final File file;
 
-        private JoinableOutputStream stream;
+        private boolean joinable;
 
-        StreamCallback( final File file, final JoinableOutputStream stream )
+        StreamCallback( final File file, final boolean joinable )
         {
             this.file = file;
-            this.stream = stream;
+            this.joinable = joinable;
         }
 
         StreamCallback( final File file )
@@ -616,16 +630,23 @@ public class JoinableFileManager
                 {
                     logger.debug( "Unlocking. Previously locked by: {}", ref.getThreadName() );
 
-                    if ( stream != null )
-                    {
-                        joinableStreams.remove( file );
-                    }
-
                     activeFiles.remove( file );
                     activeFiles.notifyAll();
                 }
             }
             logger.debug( "<<<CLOSE/UNLOCK" );
+        }
+
+        @Override
+        public void beforeClose()
+        {
+            if ( joinable )
+            {
+                synchronized ( joinableStreams )
+                {
+                    joinableStreams.remove( file );
+                }
+            }
         }
     }
 
