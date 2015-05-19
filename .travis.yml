@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 sudo: false
+=======
+sudo: required
+>>>>>>> 1c837f0f6e18aaba35b3a9f9c94b853853914194
 
 language: java
 jdk:
@@ -9,4 +13,4 @@ cache:
      - '$HOME/.m2/repository'
 
 install: /bin/true
-script: mvn install -B -e -q -Prun-its 
+script: mvn deploy -s ./travis-settings.xml -V -Prun-its -q -B -e 
