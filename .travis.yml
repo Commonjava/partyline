@@ -9,4 +9,4 @@ cache:
      - '$HOME/.m2/repository'
 
 install: /bin/true
-script: mvn install -B -e -q -Prun-its 
+script: mvn deploy -V -Prun-its -q -B -e
