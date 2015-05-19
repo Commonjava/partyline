@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 sudo: false
-=======
-sudo: required
->>>>>>> 1c837f0f6e18aaba35b3a9f9c94b853853914194
 
 language: java
 jdk:
