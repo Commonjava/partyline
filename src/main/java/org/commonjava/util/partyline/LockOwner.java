@@ -15,6 +15,8 @@
  */
 package org.commonjava.util.partyline;
 
+import static org.apache.commons.lang.StringUtils.join;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
@@ -115,6 +117,13 @@ public class LockOwner
     public LockType getLockType()
     {
         return lockType;
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format( "LockOwner [%s(%s), lockType=%s]\n  %s", threadName, threadId, lockType,
+                              join( lockOrigin, "\n  " ) );
     }
 
 }
