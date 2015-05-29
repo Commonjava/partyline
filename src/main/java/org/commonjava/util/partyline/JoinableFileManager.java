@@ -133,6 +133,8 @@ public class JoinableFileManager
     {
         if ( reporter == null )
         {
+            logger.info( "Starting file-lock statistics reporting with initial delay: {}ms and period: {}ms", delay,
+                         period );
             reporter = new ReportingTask();
             timer.schedule( reporter, delay, period );
         }
@@ -142,6 +144,7 @@ public class JoinableFileManager
     {
         if ( reporter != null )
         {
+            logger.info( "Stopping file-lock statistics reporting." );
             reporter.cancel();
         }
     }
@@ -537,7 +540,7 @@ public class JoinableFileManager
             ref = activeFiles.get( file );
             if ( ref == null )
             {
-                logger.debug( "Lock cleared for: " + file );
+                logger.debug( "Lock cleared for: {}", file );
                 proceed = true;
                 break;
             }
@@ -545,9 +548,13 @@ public class JoinableFileManager
             {
                 activeFiles.remove( file );
                 IOUtils.closeQuietly( ref );
-                logger.debug( "(Orphaned) Lock cleared for: " + file );
+                logger.debug( "(Orphaned) Lock cleared for: {}", file );
                 proceed = true;
                 break;
+            }
+            else
+            {
+                logger.debug( "Lock still held by: {}", ref );
             }
             //            else
             //            {
