@@ -666,6 +666,7 @@ public class JoinableFileManager
             final Map<File, CharSequence> activeLocks = getActiveLocks();
             if ( activeLocks.isEmpty() )
             {
+                logger.debug( "No file locks to report." );
                 return;
             }
 
