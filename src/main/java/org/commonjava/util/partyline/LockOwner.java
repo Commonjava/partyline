@@ -29,7 +29,7 @@ public class LockOwner
 
     public enum LockType
     {
-        INPUT, JOINABLE_OUTPUT, MANUAL;
+        INPUT, JOINABLE_OUTPUT, MANUAL
     }
 
     private final WeakReference<Thread> threadRef;
