@@ -129,7 +129,7 @@ public class JoinableOutputStream
     }
 
     /**
-     * If the stream is marked as closed, throw {@link IOException}. If the internal buffer is full, call {@link #flush()}. Then, write the byte to 
+     * If the stream is marked as closed, throw {@link IOException}. If the INTERNAL buffer is full, call {@link #flush()}. Then, write the byte to
      * the buffer and increment the written-byte count.
      */
     @Override
