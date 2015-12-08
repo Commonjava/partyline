@@ -14,25 +14,25 @@
  * limitations under the License.
  */
 /*******************************************************************************
-* Copyright (c) 2015 ${owner}
-* All rights reserved. This program and the accompanying materials
-* are made available under the terms of the GNU Public License v3.0
-* which accompanies this distribution, and is available at
-* http://www.gnu.org/licenses/gpl.html
-*
-* Contributors:
-* ${owner} - initial API and implementation
-******************************************************************************/
+ * Copyright (c) 2015 ${owner}
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the GNU Public License v3.0
+ * which accompanies this distribution, and is available at
+ * http://www.gnu.org/licenses/gpl.html
+ *
+ * Contributors:
+ * ${owner} - initial API and implementation
+ ******************************************************************************/
 /*******************************************************************************
-* Copyright (c) 2015 Red Hat, Inc.
-* All rights reserved. This program and the accompanying materials
-* are made available under the terms of the GNU Public License v3.0
-* which accompanies this distribution, and is available at
-* http://www.gnu.org/licenses/gpl.html
-*
-* Contributors:
-* Red Hat, Inc. - initial API and implementation
-******************************************************************************/
+ * Copyright (c) 2015 Red Hat, Inc.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the GNU Public License v3.0
+ * which accompanies this distribution, and is available at
+ * http://www.gnu.org/licenses/gpl.html
+ *
+ * Contributors:
+ * Red Hat, Inc. - initial API and implementation
+ ******************************************************************************/
 package org.commonjava.util.partyline;
 
 import java.io.File;
@@ -59,7 +59,7 @@ import org.slf4j.LoggerFactory;
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
  * they are writing. Also allows the user to lock/unlock files manually in case they need to be used outside the normal streaming use cases.
- * 
+ *
  * @author jdcasey
  */
 public class JoinableFileManager
@@ -84,8 +84,7 @@ public class JoinableFileManager
 
     public void cleanupCurrentThread()
     {
-        final long id = Thread.currentThread()
-                              .getId();
+        final long id = Thread.currentThread().getId();
         for ( final File f : activeFiles.keySet() )
         {
             final LockOwner owner = activeFiles.get( f );
@@ -111,8 +110,7 @@ public class JoinableFileManager
 
                 for ( final StackTraceElement elt : owner.getLockOrigin() )
                 {
-                    sb.append( "\n  " )
-                      .append( elt );
+                    sb.append( "\n  " ).append( elt );
                 }
 
                 sb.append( "\n\n" );
@@ -153,16 +151,26 @@ public class JoinableFileManager
     public Map<File, CharSequence> getActiveLocks()
     {
         final Map<File, CharSequence> active = new HashMap<File, CharSequence>();
-        for ( final File f : activeFiles.keySet() )
+
+        Set<File> afs;
+        synchronized ( activeFiles )
+        {
+            afs = new HashSet<>( activeFiles.keySet() );
+        }
+
+        for ( final File f : afs )
         {
             final StringBuilder owner = new StringBuilder();
+
             final LockOwner ref = activeFiles.get( f );
+
             if ( ref == null )
             {
                 owner.append( "UNKNOWN OWNER; REF IS NULL." );
             }
 
             final Thread t = ref.getThread();
+
             if ( t == null )
             {
                 owner.append( "UNKNOWN OWNER; REF IS EMPTY." );
@@ -199,7 +207,7 @@ public class JoinableFileManager
      * If the file isn't marked as active, create a new {@link JoinableOutputStream} to the specified file and pass it back to the user.
      */
     public OutputStream openOutputStream( final File file )
-        throws IOException
+            throws IOException
     {
         return openOutputStream( file, -1 );
     }
@@ -208,7 +216,7 @@ public class JoinableFileManager
      * If the file isn't marked as active, create a new {@link JoinableOutputStream} to the specified file and pass it back to the user. If the file is locked, wait for the specified milliseconds before giving up.
      */
     public OutputStream openOutputStream( final File file, final long timeout )
-        throws IOException
+            throws IOException
     {
         logger.trace( ">>>OPEN OUTPUT: {} with timeout: {}", file, timeout );
         synchronized ( activeFiles )
@@ -242,7 +250,7 @@ public class JoinableFileManager
      * the result back to the user.
      */
     public InputStream openInputStream( final File file )
-        throws FileNotFoundException, IOException
+            throws FileNotFoundException, IOException
     {
         return openInputStream( file, -1 );
     }
@@ -253,7 +261,7 @@ public class JoinableFileManager
      * the result back to the user. If the file is locked for reads, wait for the specified milliseconds before giving up.
      */
     public InputStream openInputStream( final File file, final long timeout )
-        throws FileNotFoundException, IOException
+            throws FileNotFoundException, IOException
     {
         synchronized ( activeFiles )
         {
@@ -313,8 +321,7 @@ public class JoinableFileManager
                 IOUtils.closeQuietly( ref );
             }
 
-            logger.debug( "Locked by: {}", Thread.currentThread()
-                                                 .getName() );
+            logger.debug( "Locked by: {}", Thread.currentThread().getName() );
 
             activeFiles.put( file, new LockOwner() );
             activeFiles.notifyAll();
@@ -352,12 +359,10 @@ public class JoinableFileManager
                 IOUtils.closeQuietly( ref );
                 logger.trace( "<<<MANUAL UNLOCK (lock orphaned)" );
             }
-            else if ( ref.getThreadId() != Thread.currentThread()
-                                                 .getId() )
+            else if ( ref.getThreadId() != Thread.currentThread().getId() )
             {
                 logger.warn( "Unlock attempt on file: {} by different thread!\n  locker: {}\n  unlocker: {})", file,
-                             ref.getThreadName(), Thread.currentThread()
-                                                        .getName() );
+                             ref.getThreadName(), Thread.currentThread().getName() );
 
                 logger.trace( "<<<MANUAL LOCK (allowed unlock attempt by different thread! locker: {}, unlocker: {})",
                               ref.getThreadName(), Thread.currentThread().getName() );
@@ -365,8 +370,8 @@ public class JoinableFileManager
 
             IOUtils.closeQuietly( ref );
             activeFiles.notifyAll();
-            logger.debug( "Unlocked by: {}. Previously locked by: {}", Thread.currentThread()
-                                                                             .getName(), ref.getThreadName() );
+            logger.debug( "Unlocked by: {}. Previously locked by: {}", Thread.currentThread().getName(),
+                          ref.getThreadName() );
 
         }
 
@@ -405,7 +410,7 @@ public class JoinableFileManager
     /**
      * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
      * the file becoming available for writes.
-     * 
+     *
      * @see #isWriteLocked(File)
      */
     public boolean waitForWriteUnlock( final File file, final long timeout )
@@ -427,7 +432,7 @@ public class JoinableFileManager
     /**
      * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
      * the file becoming available for writes.
-     * 
+     *
      * @see #isWriteLocked(File)
      */
     public boolean waitForWriteUnlock( final File file )
@@ -449,7 +454,7 @@ public class JoinableFileManager
     /**
      * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
      * the file becoming available for reads. If a {@link JoinableOutputStream} is available for the file, don't wait (immediately return true).
-     * 
+     *
      * @see #isReadLocked(File)
      */
     public boolean waitForReadUnlock( final File file, final long timeout )
@@ -478,7 +483,7 @@ public class JoinableFileManager
     /**
      * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
      * the file becoming available for reads. If a {@link JoinableOutputStream} is available for the file, don't wait (immediately return true).
-     * 
+     *
      * @see #isReadLocked(File)
      */
     public boolean waitForReadUnlock( final File file )
@@ -527,7 +532,7 @@ public class JoinableFileManager
             return true;
         }
 
-        logger.debug( "wait called from:\n  {}", "disabled stacktrace" /*StringUtils.join( truncatedStackTrace(), "\n  " )*/);
+        logger.debug( "wait called from:\n  {}", "disabled stacktrace" /*StringUtils.join( truncatedStackTrace(), "\n  " )*/ );
 
         boolean proceed = false;
         //        System.out.println( "Waiting (" + ( timeout < 0 ? "indeterminate time" : timeout + "ms" ) + ") for: " + file );
@@ -565,8 +570,7 @@ public class JoinableFileManager
             }
             catch ( final InterruptedException e )
             {
-                Thread.currentThread()
-                      .interrupt();
+                Thread.currentThread().interrupt();
                 proceed = false;
             }
         }
@@ -608,7 +612,7 @@ public class JoinableFileManager
     }
 
     private final class StreamCallback
-        extends AbstractStreamCallbacks
+            extends AbstractStreamCallbacks
     {
         private final Logger logger = LoggerFactory.getLogger( getClass() );
 
@@ -659,7 +663,7 @@ public class JoinableFileManager
     }
 
     private final class ReportingTask
-        extends TimerTask
+            extends TimerTask
     {
         @Override
         public void run()
@@ -675,10 +679,7 @@ public class JoinableFileManager
             sb.append( "\n\nThe following file locks are still active:" );
             for ( final File file : activeLocks.keySet() )
             {
-                sb.append( "\n" )
-                  .append( file )
-                  .append( " is owned by " )
-                  .append( activeLocks.get( file ) );
+                sb.append( "\n" ).append( file ).append( " is owned by " ).append( activeLocks.get( file ) );
             }
 
             sb.append( "\n\n" );
