@@ -168,19 +168,21 @@ public class JoinableFileManager
             {
                 owner.append( "UNKNOWN OWNER; REF IS NULL." );
             }
-
-            final Thread t = ref.getThread();
-
-            if ( t == null )
-            {
-                owner.append( "UNKNOWN OWNER; REF IS EMPTY." );
-            }
             else
             {
-                owner.append( t.getName() );
-                if ( !t.isAlive() )
+                final Thread t = ref.getThread();
+
+                if ( t == null )
                 {
-                    owner.append( " (DEAD)" );
+                    owner.append( "UNKNOWN OWNER; REF IS EMPTY." );
+                }
+                else
+                {
+                    owner.append( t.getName() );
+                    if ( !t.isAlive() )
+                    {
+                        owner.append( " (DEAD)" );
+                    }
                 }
             }
 
