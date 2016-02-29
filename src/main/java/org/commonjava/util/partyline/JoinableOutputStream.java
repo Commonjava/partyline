@@ -33,6 +33,7 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
+import java.nio.channels.FileLock;
 
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.slf4j.Logger;
@@ -53,6 +54,8 @@ public class JoinableOutputStream
     private static final int CHUNK_SIZE = 1024 * 1024; // 1 mb
 
     private final FileChannel channel;
+
+    private final FileLock lock;
 
     private long written = 0;
 
@@ -107,6 +110,7 @@ public class JoinableOutputStream
 
         randomAccessFile = new RandomAccessFile( target, "rw" );
         channel = randomAccessFile.getChannel();
+        lock = channel.lock();
         buf = ByteBuffer.allocateDirect( CHUNK_SIZE );
     }
 
@@ -204,6 +208,7 @@ public class JoinableOutputStream
 
         joinable = false;
 
+        lock.release();
         channel.close();
         randomAccessFile.close();
 
