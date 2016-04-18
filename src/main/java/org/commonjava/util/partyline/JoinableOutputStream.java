@@ -209,6 +209,9 @@ public class JoinableOutputStream
         joinable = false;
 
         lock.release();
+
+        randomAccessFile.setLength( flushed );
+
         channel.close();
         randomAccessFile.close();
 

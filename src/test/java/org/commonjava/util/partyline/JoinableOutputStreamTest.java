@@ -77,6 +77,32 @@ public class JoinableOutputStreamTest
     }
 
     @Test
+    public void overwriteFile_SmallerReplacementTruncates()
+            throws Exception
+    {
+        File f = temp.newFile();
+        JoinableOutputStream stream = new JoinableOutputStream( f );
+
+        String longer = "This is a really really really long string";
+        stream.write( longer.getBytes() );
+        stream.close();
+
+        stream = new JoinableOutputStream( f );
+
+        String shorter = "This is a short string";
+        stream.write( shorter.getBytes() );
+        stream.close();
+
+        final File file = stream.getFile();
+
+        System.out.println( "File length: " + file.length() );
+        assertThat( file.length(), equalTo( (long) shorter.getBytes().length ) );
+
+        String content = FileUtils.readFileToString( f );
+        assertThat( content, equalTo( shorter ) );
+    }
+
+    @Test
     @Ignore( "This should NOT work...and the file manager should prevent it" )
     public void writeToFileInPresenceOfSlowRawRead()
         throws Exception
