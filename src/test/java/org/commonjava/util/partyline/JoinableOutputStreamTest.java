@@ -13,26 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*******************************************************************************
-* Copyright (c) 2015 ${owner}
-* All rights reserved. This program and the accompanying materials
-* are made available under the terms of the GNU Public License v3.0
-* which accompanies this distribution, and is available at
-* http://www.gnu.org/licenses/gpl.html
-*
-* Contributors:
-* ${owner} - initial API and implementation
-******************************************************************************/
-/*******************************************************************************
-* Copyright (c) 2015 Red Hat, Inc.
-* All rights reserved. This program and the accompanying materials
-* are made available under the terms of the GNU Public License v3.0
-* which accompanies this distribution, and is available at
-* http://www.gnu.org/licenses/gpl.html
-*
-* Contributors:
-* Red Hat, Inc. - initial API and implementation
-******************************************************************************/
 package org.commonjava.util.partyline;
 
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -74,6 +54,32 @@ public class JoinableOutputStreamTest
         System.out.println( lines );
 
         assertThat( lines.size(), equalTo( COUNT ) );
+    }
+
+    @Test
+    public void overwriteFile_SmallerReplacementTruncates()
+            throws Exception
+    {
+        File f = temp.newFile();
+        JoinableOutputStream stream = new JoinableOutputStream( f );
+
+        String longer = "This is a really really really long string";
+        stream.write( longer.getBytes() );
+        stream.close();
+
+        stream = new JoinableOutputStream( f );
+
+        String shorter = "This is a short string";
+        stream.write( shorter.getBytes() );
+        stream.close();
+
+        final File file = stream.getFile();
+
+        System.out.println( "File length: " + file.length() );
+        assertThat( file.length(), equalTo( (long) shorter.getBytes().length ) );
+
+        String content = FileUtils.readFileToString( f );
+        assertThat( content, equalTo( shorter ) );
     }
 
     @Test
