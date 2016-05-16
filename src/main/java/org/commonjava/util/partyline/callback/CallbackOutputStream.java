@@ -37,6 +37,11 @@ public class CallbackOutputStream
     public void close()
         throws IOException
     {
+        if ( callbacks != null )
+        {
+            callbacks.beforeClose();
+        }
+
         try
         {
             super.close();
