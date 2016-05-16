@@ -15,26 +15,28 @@
  */
 package org.commonjava.util.partyline;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.commonjava.util.partyline.callback.AbstractStreamCallbacks;
 import org.commonjava.util.partyline.callback.CallbackInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -514,7 +516,8 @@ public class JoinableFileManager
             return true;
         }
 
-        logger.debug( "wait called from:\n  {}", "disabled stacktrace" /*StringUtils.join( truncatedStackTrace(), "\n  " )*/ );
+        String caller = logger.isDebugEnabled() ? truncatedStackTrace() : null;
+        logger.trace( "wait called from:\n  {}", caller );
 
         boolean proceed = false;
         //        System.out.println( "Waiting (" + ( timeout < 0 ? "indeterminate time" : timeout + "ms" ) + ") for: " + file );
@@ -525,7 +528,7 @@ public class JoinableFileManager
             ref = activeFiles.get( file );
             if ( ref == null )
             {
-                logger.debug( "Lock cleared for: {}", file );
+                logger.debug( "Lock cleared for: {}\n\n(Lock was requested by:\n{})", file, caller );
                 proceed = true;
                 break;
             }
@@ -533,13 +536,13 @@ public class JoinableFileManager
             {
                 activeFiles.remove( file );
                 IOUtils.closeQuietly( ref );
-                logger.debug( "(Orphaned) Lock cleared for: {}", file );
+                logger.debug( "(Orphaned) Lock cleared for: {}\n\n(Lock was requested by:\n{})", file, caller );
                 proceed = true;
                 break;
             }
             else
             {
-                logger.debug( "Lock still held by: {}", ref );
+                logger.debug( "Lock still held by: {}\n\n(Lock was requested by:\n{})", ref, caller );
             }
             //            else
             //            {
@@ -559,6 +562,24 @@ public class JoinableFileManager
 
         logger.trace( "<<<WAIT (any file activity): {}", proceed );
         return proceed;
+    }
+
+    private String truncatedStackTrace()
+    {
+        if ( logger.isDebugEnabled() )
+        {
+            List<StackTraceElement> elements = Arrays.asList( Thread.currentThread().getStackTrace() );
+            if ( elements.size() > 8 )
+            {
+                elements = elements.subList( 2, 7 );
+            }
+
+            return StringUtils.join( elements, "\n  " );
+        }
+        else
+        {
+            return "stacktrace disabled";
+        }
     }
 
     private Object stackTrace()
@@ -638,6 +659,8 @@ public class JoinableFileManager
             {
                 synchronized ( joinableStreams )
                 {
+                    Logger logger = LoggerFactory.getLogger( getClass() );
+                    logger.trace( "Removing file from joinableStreams." );
                     joinableStreams.remove( file );
                 }
             }
