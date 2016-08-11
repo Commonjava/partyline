@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.FileLock;
@@ -201,8 +202,6 @@ public class JoinableFile
 
         joinable = false;
 
-        lock.release();
-
         if ( output != null )
         {
             logger.trace( "Setting length of: {} to written length: {}", file, flushed );
@@ -210,8 +209,19 @@ public class JoinableFile
         }
 
         logger.trace( "Closing underlying channel / random-access file..." );
-        channel.close();
-        randomAccessFile.close();
+        try
+        {
+            if ( channel.isOpen() )
+            {
+                lock.release();
+                channel.close();
+            }
+            randomAccessFile.close();
+        }
+        catch ( ClosedChannelException e )
+        {
+            logger.debug( "Lock release failed on closed channel.", e );
+        }
 
         if ( callbacks != null )
         {
