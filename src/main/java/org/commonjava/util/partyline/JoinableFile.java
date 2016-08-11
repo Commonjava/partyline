@@ -127,6 +127,11 @@ public class JoinableFile
         return output;
     }
 
+    public boolean isJoinable()
+    {
+        return joinable;
+    }
+
     /**
      * Return an {@link InputStream} instance that reads from the same {@link RandomAccessFile} that backs this output stream, and is tuned to listen
      * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
@@ -136,7 +141,7 @@ public class JoinableFile
     {
         if ( !joinable )
         {
-            throw new IOException( "Joinable output stream in the process of closing. Cannot join!" );
+            throw new IOException( "Joinable file in the process of closing. Cannot join!" );
         }
 
         logger.debug( "JOIN: {}", Thread.currentThread()
