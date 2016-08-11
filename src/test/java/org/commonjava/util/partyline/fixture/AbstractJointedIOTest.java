@@ -24,7 +24,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 import org.commonjava.util.partyline.AsyncFileReader;
-import org.commonjava.util.partyline.JoinableOutputStream;
+import org.commonjava.util.partyline.JoinableFile;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
@@ -114,13 +114,13 @@ public abstract class AbstractJointedIOTest
         return timings;
     }
 
-    protected void startRead( final long initialDelay, final JoinableOutputStream stream, final CountDownLatch latch )
+    protected void startRead( final long initialDelay, final JoinableFile stream, final CountDownLatch latch )
     {
         startRead( initialDelay, -1, -1, stream, latch );
     }
 
     protected void startRead( final long initialDelay, final long readDelay, final long closeDelay,
-                              final JoinableOutputStream stream, final CountDownLatch latch )
+                              final JoinableFile stream, final CountDownLatch latch )
     {
         newThread( "reader" + readers++, new AsyncFileReader( initialDelay, readDelay, closeDelay, stream, latch ) ).start();
     }
@@ -131,21 +131,21 @@ public abstract class AbstractJointedIOTest
         newThread( "reader" + readers++, new AsyncFileReader( initialDelay, readDelay, closeDelay, file, latch ) ).start();
     }
 
-    protected JoinableOutputStream startTimedWrite( final long delay, final CountDownLatch latch )
+    protected JoinableFile startTimedWrite( final long delay, final CountDownLatch latch )
         throws Exception
     {
         final File file = temp.newFile();
         return startTimedWrite( file, delay, latch );
     }
 
-    protected JoinableOutputStream startTimedWrite( final File file, final long delay, final CountDownLatch latch )
+    protected JoinableFile startTimedWrite( final File file, final long delay, final CountDownLatch latch )
         throws Exception
     {
-        final JoinableOutputStream stream = new JoinableOutputStream( file );
+        final JoinableFile jf = new JoinableFile( file, true );
 
-        newThread( "writer" + writers++, new TimedFileWriter( stream, delay, latch ) ).start();
+        newThread( "writer" + writers++, new TimedFileWriter( jf, delay, latch ) ).start();
 
-        return stream;
+        return jf;
     }
 
 }

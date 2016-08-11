@@ -18,18 +18,18 @@ package org.commonjava.util.partyline.fixture;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.commons.io.IOUtils;
-import org.commonjava.util.partyline.JoinableOutputStream;
+import org.commonjava.util.partyline.JoinableFile;
 
 public final class TimedFileWriter
     implements Runnable
 {
     private final long delay;
 
-    private final JoinableOutputStream stream;
+    private final JoinableFile stream;
 
     private final CountDownLatch latch;
 
-    public TimedFileWriter( final JoinableOutputStream stream, final long delay, final CountDownLatch latch )
+    public TimedFileWriter( final JoinableFile stream, final long delay, final CountDownLatch latch )
     {
         this.stream = stream;
         this.delay = delay;
@@ -51,7 +51,7 @@ public final class TimedFileWriter
                 Thread.sleep( delay );
 
                 //                    System.out.println( "Writing: " + i );
-                stream.write( String.format( "%d\n", i )
+                stream.getOutputStream().write( String.format( "%d\n", i )
                                     .getBytes() );
             }
 

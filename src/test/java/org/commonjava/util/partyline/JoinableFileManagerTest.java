@@ -27,10 +27,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Map;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class JoinableFileManagerTest
@@ -126,7 +128,9 @@ public class JoinableFileManagerTest
         final InputStream stream = mgr.openInputStream( f );
 
         assertThat( mgr.isWriteLocked( f ), equalTo( true ) );
-        assertThat( mgr.isReadLocked( f ), equalTo( true ) );
+
+        // after change to always use JoinableFile (even for read-first), I don't think partyline will ever read lock.
+        assertThat( mgr.isReadLocked( f ), equalTo( false ) );
 
         stream.close();
 
@@ -135,6 +139,7 @@ public class JoinableFileManagerTest
     }
 
     @Test
+    @Ignore( "With change to JoinableFile for all reads, partyline should never read-lock" )
     public void openInputStream_TimeBoxedSecondCallReturnsNull()
         throws Exception
     {
@@ -150,6 +155,33 @@ public class JoinableFileManagerTest
         s2 = mgr.openInputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, notNullValue() );
+    }
+
+    @Test
+    public void openInputStream_ConcurrentReadersGetSameResult()
+            throws Exception
+    {
+        final File f = temp.newFile();
+        String str = "This is a test";
+        FileUtils.write( f, str );
+        InputStream s1 = null;
+        InputStream s2 = null;
+        try
+        {
+            s1 = mgr.openInputStream( f );
+            s2 = mgr.openInputStream( f, SHORT_TIMEOUT );
+
+            String out1 = IOUtils.toString( s1 );
+            String out2 = IOUtils.toString( s2 );
+
+            assertThat( "first reader returned wrong data", out1, equalTo( str ) );
+            assertThat( "second reader returned wrong data", out2, equalTo( str ) );
+        }
+        finally
+        {
+            s1.close();
+            s2.close();
+        }
     }
 
     @Test
