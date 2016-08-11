@@ -16,22 +16,27 @@
 package org.commonjava.util.partyline;
 
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.junit.Assert.assertThat;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class JoinableOutputStreamTest
     extends AbstractJointedIOTest
@@ -41,7 +46,7 @@ public class JoinableOutputStreamTest
         throws Exception
     {
         final CountDownLatch latch = new CountDownLatch( 1 );
-        final JoinableOutputStream stream = startTimedWrite( 0, latch );
+        final JoinableFile stream = startTimedWrite( 0, latch );
 
         System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
         latch.await();
@@ -61,19 +66,21 @@ public class JoinableOutputStreamTest
             throws Exception
     {
         File f = temp.newFile();
-        JoinableOutputStream stream = new JoinableOutputStream( f );
+        JoinableFile jf = new JoinableFile( f, true );
+        OutputStream stream = jf.getOutputStream();
 
         String longer = "This is a really really really long string";
         stream.write( longer.getBytes() );
         stream.close();
 
-        stream = new JoinableOutputStream( f );
+        jf = new JoinableFile( f,true );
+        stream = jf.getOutputStream();
 
         String shorter = "This is a short string";
         stream.write( shorter.getBytes() );
         stream.close();
 
-        final File file = stream.getFile();
+        final File file = jf.getFile();
 
         System.out.println( "File length: " + file.length() );
         assertThat( file.length(), equalTo( (long) shorter.getBytes().length ) );
@@ -119,7 +126,7 @@ public class JoinableOutputStreamTest
         throws Exception
     {
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableOutputStream stream = startTimedWrite( 0, latch );
+        final JoinableFile stream = startTimedWrite( 0, latch );
         startRead( 0, stream, latch );
 
         System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
@@ -131,7 +138,7 @@ public class JoinableOutputStreamTest
         throws Exception
     {
         final CountDownLatch latch = new CountDownLatch( 3 );
-        final JoinableOutputStream stream = startTimedWrite( 1, latch );
+        final JoinableFile stream = startTimedWrite( 1, latch );
         startRead( 0, stream, latch );
         startRead( 500, stream, latch );
 
@@ -140,11 +147,50 @@ public class JoinableOutputStreamTest
     }
 
     @Test
+    public void joinFileRead()
+            throws Exception
+    {
+        final File file = temp.newFile();
+        final File f = temp.newFile();
+        String str = "This is a test";
+        FileUtils.write( f, str );
+        JoinableFile jf = null;
+        InputStream s1 = null;
+        InputStream s2 = null;
+
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        try
+        {
+            jf = new JoinableFile( f, false );
+            s1 = jf.joinStream();
+            s2 = jf.joinStream();
+
+            logger.info( "READ first thread" );
+            String out1 = IOUtils.toString( s1 );
+            logger.info( "READ second thread" );
+            String out2 = IOUtils.toString( s2 );
+
+            assertThat( "first reader returned wrong data", out1, equalTo( str ) );
+            assertThat( "second reader returned wrong data", out2, equalTo( str ) );
+        }
+        finally
+        {
+            logger.info( "CLOSE first thread" );
+            s1.close();
+            logger.info( "CLOSE second thread" );
+            s2.close();
+        }
+
+        assertThat( jf, notNullValue() );
+        assertThat( jf.isOpen(), equalTo( false ) );
+    }
+
+    @Test
     public void joinFileWriteJustBeforeFinished()
         throws Exception
     {
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableOutputStream stream = startTimedWrite( 1, latch );
+        final JoinableFile stream = startTimedWrite( 1, latch );
         startRead( 1000, stream, latch );
         //        startRead( 500, stream, latch );
 
@@ -157,7 +203,7 @@ public class JoinableOutputStreamTest
         throws Exception
     {
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableOutputStream stream = startTimedWrite( 1, latch );
+        final JoinableFile stream = startTimedWrite( 1, latch );
         startRead( 0, -1, 10000, stream, latch );
         //        startRead( 500, stream, latch );
 
@@ -170,18 +216,18 @@ public class JoinableOutputStreamTest
     public void outputStreamWaitsForSingleJoinedInputStreamToClose()
         throws Exception
     {
-        final JoinableOutputStream stream = new JoinableOutputStream( temp.newFile() );
+        final JoinableFile jf = new JoinableFile( temp.newFile(), true );
 
         final String out = "output";
         final String in = "input";
         final Map<String, Long> timings =
-            testTimings( new TimedTask( out, new WaitThenCloseOutputStream( 5, stream ) ),
-                        new TimedTask( in, new OpenThenWaitThenCloseInputStream( 10, stream ) ) );
+            testTimings( new TimedTask( out, new WaitThenCloseOutputStream( 5, jf ) ),
+                        new TimedTask( in, new OpenThenWaitThenCloseInputStream( 10, jf ) ) );
 
         System.out.println( "input closed at: " + timings.get( in ) );
         System.out.println( "output closed at: " + timings.get( out ) );
 
-        assertThat( "input stream (" + timings.get( in ) + ") should have closed before output stream ("
+        assertThat( "input jf (" + timings.get( in ) + ") should have closed before output jf ("
                         + timings.get( out ) + ")", timings.get( in ) <= timings.get( out ), equalTo( true ) );
     }
 
@@ -190,15 +236,15 @@ public class JoinableOutputStreamTest
     public void outputStreamWaitsForTwoJoinedInputStreamsToClose()
         throws Exception
     {
-        final JoinableOutputStream stream = new JoinableOutputStream( temp.newFile() );
+        final JoinableFile jf = new JoinableFile( temp.newFile(), true );
 
         final String out = "output";
         final String in = "input";
         final String in2 = "input2";
         final Map<String, Long> timings =
-            testTimings( new TimedTask( out, new WaitThenCloseOutputStream( 5, stream ) ),
-                        new TimedTask( in, new OpenThenWaitThenCloseInputStream( 10, stream ) ),
-                        new TimedTask( in2, new OpenThenWaitThenCloseInputStream( 15, stream ) ) );
+            testTimings( new TimedTask( out, new WaitThenCloseOutputStream( 5, jf ) ),
+                        new TimedTask( in, new OpenThenWaitThenCloseInputStream( 10, jf ) ),
+                        new TimedTask( in2, new OpenThenWaitThenCloseInputStream( 15, jf ) ) );
 
         System.out.println( "input 1 closed at: " + timings.get( in ) );
         System.out.println( "input 2 closed at: " + timings.get( in2 ) );
@@ -212,14 +258,14 @@ public class JoinableOutputStreamTest
     public static final class WaitThenCloseOutputStream
         implements Runnable
     {
-        private final JoinableOutputStream stream;
+        private final JoinableFile jf;
 
         private final long timeout;
 
-        public WaitThenCloseOutputStream( final long timeout, final JoinableOutputStream stream )
+        public WaitThenCloseOutputStream( final long timeout, final JoinableFile jf )
         {
             this.timeout = timeout;
-            this.stream = stream;
+            this.jf = jf;
         }
 
         @Override
@@ -228,7 +274,7 @@ public class JoinableOutputStreamTest
             try
             {
                 Thread.sleep( timeout );
-                stream.close();
+                jf.close();
             }
             catch ( InterruptedException | IOException e )
             {
@@ -241,14 +287,14 @@ public class JoinableOutputStreamTest
     public static final class OpenThenWaitThenCloseInputStream
         implements Runnable
     {
-        private final JoinableOutputStream stream;
+        private final JoinableFile jf;
 
         private final long timeout;
 
-        public OpenThenWaitThenCloseInputStream( final long timeout, final JoinableOutputStream stream )
+        public OpenThenWaitThenCloseInputStream( final long timeout, final JoinableFile jf )
         {
             this.timeout = timeout;
-            this.stream = stream;
+            this.jf = jf;
         }
 
         @Override
@@ -256,7 +302,7 @@ public class JoinableOutputStreamTest
         {
             try
             {
-                final InputStream in = stream.joinStream();
+                final InputStream in = jf.joinStream();
                 Thread.sleep( timeout );
                 in.close();
             }

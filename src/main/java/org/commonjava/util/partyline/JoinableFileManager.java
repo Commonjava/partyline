@@ -49,7 +49,7 @@ public class JoinableFileManager
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
-    private final Map<File, JoinableOutputStream> joinableStreams = new ConcurrentHashMap<>();
+    private final Map<File, JoinableFile> joinableStreams = new ConcurrentHashMap<>();
 
     private final Map<File, LockOwner> activeFiles = new ConcurrentHashMap<>();
 
@@ -188,7 +188,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If the file isn't marked as active, create a new {@link JoinableOutputStream} to the specified file and pass it back to the user.
+     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to the user.
      */
     public OutputStream openOutputStream( final File file )
             throws IOException
@@ -197,7 +197,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If the file isn't marked as active, create a new {@link JoinableOutputStream} to the specified file and pass it back to the user. If the file is locked, wait for the specified milliseconds before giving up.
+     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to the user. If the file is locked, wait for the specified milliseconds before giving up.
      */
     public OutputStream openOutputStream( final File file, final long timeout )
             throws IOException
@@ -213,13 +213,14 @@ public class JoinableFileManager
             }
 
             // FIXME: Nested synchronization blocks, could create deadlock!
-            final JoinableOutputStream out = new JoinableOutputStream( file, new StreamCallback( file, true ) );
+            final JoinableFile jf = new JoinableFile( file, new StreamCallback( file, true ), true );
             synchronized ( joinableStreams )
             {
-                joinableStreams.put( file, out );
+                joinableStreams.put( file, jf );
             }
 
             logger.debug( "Locked by: {}", Thread.currentThread().getName() );
+            OutputStream out = jf.getOutputStream();
             activeFiles.put( file, new LockOwner( out ) );
             activeFiles.notifyAll();
 
@@ -229,7 +230,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If there is an active {@link JoinableOutputStream}, call {@link JoinableOutputStream#joinStream()} and return it to the user. Otherwise, open
+     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user. Otherwise, open
      * a new {@link FileInputStream} to the specified file, wrap it in a {@link CallbackInputStream} to notify this manager when it closes, and pass
      * the result back to the user.
      */
@@ -240,7 +241,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If there is an active {@link JoinableOutputStream}, call {@link JoinableOutputStream#joinStream()} and return it to the user. Otherwise, open
+     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user. Otherwise, open
      * a new {@link FileInputStream} to the specified file, wrap it in a {@link CallbackInputStream} to notify this manager when it closes, and pass
      * the result back to the user. If the file is locked for reads, wait for the specified milliseconds before giving up.
      */
@@ -252,7 +253,7 @@ public class JoinableFileManager
             logger.trace( ">>>OPEN INPUT: {} with timeout: {}", file, timeout );
 
             // FIXME: Nested synchronization blocks, could create deadlock!
-            final JoinableOutputStream joinable;
+            JoinableFile joinable;
             synchronized ( joinableStreams )
             {
                 joinable = joinableStreams.get( file );
@@ -274,12 +275,18 @@ public class JoinableFileManager
 
                 logger.debug( "Locked by: {}", Thread.currentThread().getName() );
 
-                final InputStream in = new FileInputStream( file );
+                joinable = new JoinableFile( file, new StreamCallback( file, true ), false );
+                synchronized ( joinableStreams )
+                {
+                    joinableStreams.put( file, joinable );
+                }
+
+                InputStream in = joinable.joinStream();
                 activeFiles.put( file, new LockOwner( in ) );
                 activeFiles.notifyAll();
 
                 logger.trace( "<<<OPEN INPUT (raw), called from:\n  {}", stackTrace() );
-                return new CallbackInputStream( in, new StreamCallback( file ) );
+                return in;
             }
         }
     }
@@ -382,7 +389,7 @@ public class JoinableFileManager
 
     /**
      * Check if the specified file is locked against read operations. This is only the case if the file is active AND not in use via a 
-     * {@link JoinableOutputStream}, since joinable streams allow multiple reads while the write operation is ongoing.
+     * {@link JoinableFile}, since joinable streams allow multiple reads while the write operation is ongoing.
      */
     public boolean isReadLocked( final File file )
     {
@@ -437,7 +444,7 @@ public class JoinableFileManager
 
     /**
      * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
-     * the file becoming available for reads. If a {@link JoinableOutputStream} is available for the file, don't wait (immediately return true).
+     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
      *
      * @see #isReadLocked(File)
      */
@@ -466,7 +473,7 @@ public class JoinableFileManager
 
     /**
      * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
-     * the file becoming available for reads. If a {@link JoinableOutputStream} is available for the file, don't wait (immediately return true).
+     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
      *
      * @see #isReadLocked(File)
      */
@@ -626,7 +633,6 @@ public class JoinableFileManager
         StreamCallback( final File file, final boolean joinable )
         {
             this.file = file;
-            this.joinable = joinable;
         }
 
         StreamCallback( final File file )

@@ -32,7 +32,7 @@ public final class AsyncFileReader
     implements Runnable
 {
 
-    private final JoinableOutputStream stream;
+    private final JoinableFile stream;
 
     private final CountDownLatch latch;
 
@@ -45,7 +45,7 @@ public final class AsyncFileReader
     private final long readDelay;
 
     public AsyncFileReader( final long initialDelay, final long readDelay, final long closeDelay,
-                            final JoinableOutputStream stream,
+                            final JoinableFile stream,
                             final CountDownLatch latch )
     {
         this.initialDelay = initialDelay;
