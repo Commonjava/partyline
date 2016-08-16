@@ -38,7 +38,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class JoinableOutputStreamTest
+public class JoinableFileTest
     extends AbstractJointedIOTest
 {
     @Test

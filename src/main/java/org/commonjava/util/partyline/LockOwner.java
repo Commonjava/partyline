@@ -15,6 +15,9 @@
  */
 package org.commonjava.util.partyline;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import static org.apache.commons.lang.StringUtils.join;
 
 import java.io.Closeable;
@@ -24,13 +27,7 @@ import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 
 public class LockOwner
-    implements Closeable
 {
-
-    public enum LockType
-    {
-        INPUT, JOINABLE_OUTPUT, MANUAL
-    }
 
     private final WeakReference<Thread> threadRef;
 
@@ -40,38 +37,21 @@ public class LockOwner
 
     private final StackTraceElement[] lockOrigin;
 
-    private InputStream inputStream;
-
-    private OutputStream outputStream;
-
-    private LockType lockType;
-
-    public LockOwner( final OutputStream outputStream )
-    {
-        this.outputStream = outputStream;
-        final Thread t = Thread.currentThread();
-        this.threadRef = new WeakReference<Thread>( t );
-        this.threadName = t.getName();
-        this.threadId = t.getId();
-        this.lockOrigin = t.getStackTrace();
-        this.lockType = LockType.JOINABLE_OUTPUT;
-    }
-
-    public LockOwner( final InputStream inputStream )
-    {
-        this.inputStream = inputStream;
-        final Thread t = Thread.currentThread();
-        this.threadRef = new WeakReference<Thread>( t );
-        this.threadName = t.getName();
-        this.threadId = t.getId();
-        this.lockOrigin = t.getStackTrace();
-        this.lockType = LockType.INPUT;
-    }
-
     public LockOwner()
     {
-        this( (InputStream) null );
-        this.lockType = LockType.MANUAL;
+        final Thread t = Thread.currentThread();
+        this.threadRef = new WeakReference<Thread>( t );
+        this.threadName = t.getName();
+        this.threadId = t.getId();
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        if ( logger.isDebugEnabled())
+        {
+            this.lockOrigin = t.getStackTrace();
+        }
+        else
+        {
+            this.lockOrigin = null;
+        }
     }
 
     public boolean isAlive()
@@ -101,29 +81,10 @@ public class LockOwner
     }
 
     @Override
-    public void close()
-        throws IOException
-    {
-        if ( inputStream != null )
-        {
-            inputStream.close();
-        }
-        else if ( outputStream != null )
-        {
-            outputStream.close();
-        }
-    }
-
-    public LockType getLockType()
-    {
-        return lockType;
-    }
-
-    @Override
     public String toString()
     {
-        return String.format( "LockOwner [%s(%s), lockType=%s]\n  %s", threadName, threadId, lockType,
-                              join( lockOrigin, "\n  " ) );
+        return String.format( "LockOwner [%s(%s)]\n  %s", threadName, threadId,
+                              lockOrigin == null ? "-suppressed-" : join( lockOrigin, "\n  " ) );
     }
 
 }

@@ -51,8 +51,6 @@ public class JoinableFile
 
     private final JoinableOutputStream output;
 
-    private long written = 0;
-
     private long flushed = 0;
 
     private final ByteBuffer buf;
@@ -68,6 +66,8 @@ public class JoinableFile
     private boolean closed = false;
 
     private boolean joinable = true;
+
+    private final LockOwner owner;
 
     /**
      * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
@@ -98,20 +98,19 @@ public class JoinableFile
     public JoinableFile( final File target, final StreamCallbacks callbacks, boolean doOutput )
         throws IOException
     {
+        this.owner = new LockOwner();
         this.file = target;
         this.callbacks = callbacks;
 
         target.getParentFile()
               .mkdirs();
 
-        randomAccessFile = new RandomAccessFile( target, "rw" );
-        channel = randomAccessFile.getChannel();
-        lock = channel.lock();
         if ( doOutput )
         {
             logger.trace( "INIT: read-write JoinableFile: {}", file );
             buf = ByteBuffer.allocateDirect( CHUNK_SIZE );
             output = new JoinableOutputStream();
+            randomAccessFile = new RandomAccessFile( target, "rw" );
         }
         else
         {
@@ -120,7 +119,16 @@ public class JoinableFile
             buf = null;
             logger.trace( "INIT: set flushed length to: {}", target.length() );
             flushed = target.length();
+            randomAccessFile = new RandomAccessFile( target, "r" );
         }
+
+        channel = randomAccessFile.getChannel();
+        lock = channel.lock( 0L, Long.MAX_VALUE, !doOutput );
+    }
+
+    public LockOwner getLockOwner()
+    {
+        return owner;
     }
 
     public OutputStream getOutputStream()
@@ -160,7 +168,7 @@ public class JoinableFile
         }
     }
 
-    public boolean canWrite()
+    public boolean isWriteLocked()
     {
         return buf != null;
     }
@@ -268,6 +276,11 @@ public class JoinableFile
         return !closed || jointCount > 0;
     }
 
+    public boolean isOwnedByCurrentThread()
+    {
+        return Thread.currentThread().getId() == owner.getThreadId();
+    }
+
     private final class JoinableOutputStream
         extends OutputStream
     {
@@ -292,7 +305,6 @@ public class JoinableFile
             }
 
             buf.put( (byte) ( b & 0xff ) );
-            written++;
         }
 
         /**
