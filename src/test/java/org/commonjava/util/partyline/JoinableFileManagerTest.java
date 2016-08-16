@@ -288,15 +288,15 @@ public class JoinableFileManagerTest
         @Override
         public void run()
         {
-            //            System.out.println( Thread.currentThread()
-            //                                      .getName() + ": Locking: " + file );
-            final boolean locked = mgr.lock( file );
-            //            System.out.println( Thread.currentThread()
-            //                                      .getName() + ": Locked: " + file + "? " + locked );
-            assertThat( locked, equalTo( true ) );
-
             try
             {
+                //            System.out.println( Thread.currentThread()
+                //                                      .getName() + ": Locking: " + file );
+                final boolean locked = mgr.lock( file, true );
+                //            System.out.println( Thread.currentThread()
+                //                                      .getName() + ": Locked: " + file + "? " + locked );
+                assertThat( locked, equalTo( true ) );
+
                 //                System.out.println( Thread.currentThread()
                 //                                          .getName() + ": Waiting for unlock: " + timeout + "ms" );
                 Thread.sleep( timeout );
@@ -304,6 +304,11 @@ public class JoinableFileManagerTest
             catch ( final InterruptedException e )
             {
                 Assert.fail( "Interrupted!" );
+            }
+            catch ( IOException e )
+            {
+                e.printStackTrace();
+                Assert.fail( "Failed to acquire lock on: " + file );
             }
 
             //            System.out.println( Thread.currentThread()
