@@ -30,13 +30,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -49,9 +47,7 @@ public class JoinableFileManager
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
-    private final Map<File, JoinableFile> streams = new ConcurrentHashMap<>();
-
-    private final Set<File> manualLocks = new HashSet<>();
+    private final FileTree locks = new FileTree();
 
     private final Timer timer;
 
@@ -65,43 +61,33 @@ public class JoinableFileManager
     public void cleanupCurrentThread()
     {
         final long id = Thread.currentThread().getId();
-        for ( final File f : streams.keySet() )
-        {
-            synchronized ( streams )
+        locks.forFilesOwnedBy( id, (jf) ->{
+            locks.remove( jf.getPath() );
+
+            final StringBuilder sb = new StringBuilder();
+            LockOwner owner = jf.getLockOwner();
+            sb.append( "CLEARING ORPHANED LOCK:\nFile: " )
+              .append( jf )
+              .append( "\nOwned by thread: " )
+              .append( owner.getThreadName() )
+              .append( " (ID: " )
+              .append( owner.getThreadId() )
+              .append( ")" )
+              .append( "\nLock type: " )
+              .append( jf.isWriteLocked() ? "WRITE" : "READ" )
+              .append( "\nLocked at:\n" );
+
+            for ( final StackTraceElement elt : owner.getLockOrigin() )
             {
-                JoinableFile jf = streams.get( f );
-                if ( jf != null && jf.isOwnedByCurrentThread() )
-                {
-                    streams.remove( f );
-                    streams.notifyAll();
-
-                    final StringBuilder sb = new StringBuilder();
-                    LockOwner owner = jf.getLockOwner();
-                    sb.append( "CLEARING ORPHANED LOCK:\nFile: " )
-                      .append( f )
-                      .append( "\nOwned by thread: " )
-                      .append( owner.getThreadName() )
-                      .append( " (ID: " )
-                      .append( owner.getThreadId() )
-                      .append( ")" )
-                      .append( "\nLock type: " )
-                      .append( jf.isWriteLocked() ? "WRITE" : "READ" )
-                      .append( "\nLocked at:\n" );
-
-                    for ( final StackTraceElement elt : owner.getLockOrigin() )
-                    {
-                        sb.append( "\n  " ).append( elt );
-                    }
-
-                    sb.append( "\n\n" );
-
-                    logger.warn( sb.toString() );
-
-                    IOUtils.closeQuietly( jf );
-                }
+                sb.append( "\n  " ).append( elt );
             }
-        }
 
+            sb.append( "\n\n" );
+
+            logger.warn( sb.toString() );
+
+            IOUtils.closeQuietly( jf );
+        });
     }
 
     public synchronized void startReporting()
@@ -133,17 +119,9 @@ public class JoinableFileManager
     {
         final Map<File, CharSequence> active = new HashMap<File, CharSequence>();
 
-        Set<File> afs;
-        synchronized ( streams )
-        {
-            afs = new HashSet<>( streams.keySet() );
-        }
-
-        for ( final File f : afs )
-        {
+        locks.forAll((jf)->{
             final StringBuilder owner = new StringBuilder();
 
-            JoinableFile jf = streams.get( f );
             final LockOwner ref = jf.getLockOwner();
 
             if ( ref == null )
@@ -177,8 +155,8 @@ public class JoinableFileManager
                 owner.append( " (READ)" );
             }
 
-            active.put( f, owner );
-        }
+            active.put( new File( jf.getPath() ), owner );
+        });
 
         return active;
     }
@@ -199,8 +177,15 @@ public class JoinableFileManager
             throws IOException
     {
         logger.trace( ">>>OPEN OUTPUT: {} with timeout: {}", file, timeout );
-        synchronized ( streams )
+        synchronized ( locks )
         {
+            JoinableFile jf = locks.getFile( file );
+            if ( jf != null && jf.isOwnedByCurrentThread() )
+            {
+                throw new IOException(
+                        "OutputStream is not re-entrant! This thread already has an output stream open for: " + file );
+            }
+
             final boolean proceed = timeout > 0 ? waitForFile( file, timeout ) : waitForFile( file );
             if ( !proceed )
             {
@@ -208,13 +193,11 @@ public class JoinableFileManager
                 return null;
             }
 
-            final JoinableFile jf = new JoinableFile( file, new StreamCallback( file, true ), true );
-            streams.put( file, jf );
-
+            jf = new JoinableFile( file, new StreamCallback( file, true ), true );
             logger.debug( "Locked by: {}", Thread.currentThread().getName() );
             OutputStream out = jf.getOutputStream();
 
-            streams.notifyAll();
+            locks.add( jf );
             logger.trace( "<<<OPEN OUTPUT" );
 
             return out;
@@ -240,11 +223,11 @@ public class JoinableFileManager
     public InputStream openInputStream( final File file, final long timeout )
             throws FileNotFoundException, IOException
     {
-        synchronized ( streams )
+        synchronized ( locks )
         {
             logger.trace( ">>>OPEN INPUT: {} with timeout: {}", file, timeout );
 
-            JoinableFile joinable = streams.get( file );
+            JoinableFile joinable = locks.getFile( file );
 
             if ( joinable != null )
             {
@@ -263,10 +246,8 @@ public class JoinableFileManager
                 logger.debug( "Locked by: {}", Thread.currentThread().getName() );
 
                 joinable = new JoinableFile( file, new StreamCallback( file, true ), false );
-                streams.put( file, joinable );
-
                 InputStream in = joinable.joinStream();
-                streams.notifyAll();
+                locks.add( joinable );
 
                 logger.trace( "<<<OPEN INPUT (raw), called from:\n  {}", stackTrace() );
                 return in;
@@ -281,30 +262,52 @@ public class JoinableFileManager
             throws IOException
     {
         logger.trace( ">>>MANUAL LOCK: {} at:\n  {}", file, stackTrace() );
-        synchronized ( streams )
+        synchronized ( locks )
         {
-            JoinableFile jf = streams.get( file );
-            if ( jf != null && jf.isOpen() )
+            boolean available = waitForFile( file );
+            if ( !available )
             {
                 logger.trace( "<<<MANUAL LOCK (failed)" );
                 return false;
             }
 
-            // TODO: I don't think this is necessary if we're only managing JoinableFile.
-//            if ( jf != null )
-//            {
-//                // if we get here, the ref is non-null but dead. Clear it.
-//                IOUtils.closeQuietly( jf );
-//            }
-
+            locks.add( new JoinableFile( file, new StreamCallback( file, true ), writeLock ) );
             logger.debug( "Locked by: {}", Thread.currentThread().getName() );
-
-            streams.put( file, new JoinableFile( file, new StreamCallback( file, true ), writeLock ) );
-            streams.notifyAll();
         }
 
         logger.trace( "<<<MANUAL LOCK (success)" );
         return true;
+    }
+
+    private JoinableFile findLockedFile( File file )
+    {
+        synchronized ( locks )
+        {
+            // find any files locked by someone else.
+            Predicate<JoinableFile> notOwnerFilter = ( candidate)->!candidate.isOwnedByCurrentThread();
+
+            JoinableFile jf = locks.getFile( file );
+
+            if ( jf != null && !notOwnerFilter.test( jf ) )
+            {
+                // if the exact file is locked by us, don't look any farther.
+                return null;
+            }
+
+            if ( jf == null )
+            {
+                // if the exact file isn't locked by someone else, look in its ancestry
+                jf = locks.findAncestorFile( file, notOwnerFilter );
+            }
+
+            if ( jf == null && file.isDirectory() )
+            {
+                // if the exact file isn't locked by someone else, and neither is its ancestry, check its children (if it's a directory)
+                jf = locks.findChildFile( file, notOwnerFilter );
+            }
+
+            return jf;
+        }
     }
 
     /**
@@ -313,10 +316,10 @@ public class JoinableFileManager
     public boolean unlock( final File file )
     {
         logger.trace( ">>>MANUAL UNLOCK: {} at:\n  {}", file, stackTrace() );
-        synchronized ( streams )
+        synchronized ( locks )
         {
             // TODO: atomic, no sync needed?
-            JoinableFile jf = streams.get( file );
+            JoinableFile jf = locks.getFile( file );
             if ( jf != null )
             {
                 logger.warn( "Manual unlock called for: {}. This may not be safe!", file );
@@ -338,7 +341,7 @@ public class JoinableFileManager
             }
 
             IOUtils.closeQuietly( jf );
-            streams.notifyAll();
+            locks.remove( jf.getPath() );
             logger.debug( "Unlocked by: {}. Previously locked by: {}", Thread.currentThread().getName(),
                           ref.getThreadName() );
 
@@ -353,7 +356,7 @@ public class JoinableFileManager
      */
     public boolean isWriteLocked( final File file )
     {
-        JoinableFile jf = streams.get( file );
+        JoinableFile jf = locks.getFile( file );
         return jf != null;
     }
 
@@ -374,16 +377,13 @@ public class JoinableFileManager
     public boolean waitForWriteUnlock( final File file, final long timeout )
     {
         logger.trace( ">>>WAIT (write): {} with timeout: {}", file, timeout );
-        synchronized ( streams )
+        try
         {
-            try
-            {
-                return waitForFile( file, timeout );
-            }
-            finally
-            {
-                logger.trace( "<<<WAIT (write): {}, timeout: {}", file, timeout );
-            }
+            return waitForFile( file, timeout );
+        }
+        finally
+        {
+            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, timeout );
         }
     }
 
@@ -396,16 +396,13 @@ public class JoinableFileManager
     public boolean waitForWriteUnlock( final File file )
     {
         logger.trace( ">>>WAIT (write): {} with timeout: {}", file, -1 );
-        synchronized ( streams )
+        try
         {
-            try
-            {
-                return waitForFile( file );
-            }
-            finally
-            {
-                logger.trace( "<<<WAIT (write): {}, timeout: {}", file, -1 );
-            }
+            return waitForFile( file );
+        }
+        finally
+        {
+            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, -1 );
         }
     }
 
@@ -440,47 +437,50 @@ public class JoinableFileManager
     private boolean waitForFile( final File file, final long timeout )
     {
         logger.trace( ">>>WAIT (any file activity): {} with timeout: {}", file, timeout );
-        JoinableFile jf = streams.get( file );
-        if ( jf == null )
+        synchronized(locks)
         {
-            logger.trace( "<<<WAIT (any file activity): Not locked" );
-            return true;
-        }
-
-        String caller = logger.isDebugEnabled() ? truncatedStackTrace() : null;
-        logger.trace( "wait called from:\n  {}", caller );
-
-        boolean proceed = false;
-        //        System.out.println( "Waiting (" + ( timeout < 0 ? "indeterminate time" : timeout + "ms" ) + ") for: " + file );
-
-        final long ends = timeout < 0 ? -1 : System.currentTimeMillis() + timeout;
-        while ( ends < 0 || System.currentTimeMillis() < ends )
-        {
-            jf = streams.get( file );
+            JoinableFile jf = findLockedFile( file );
             if ( jf == null )
             {
-                logger.debug( "Lock cleared for: {}\n\n(Lock was requested by:\n{})", file, caller );
-                proceed = true;
-                break;
-            }
-            else
-            {
-                logger.debug( "Lock still held by: {}\n\n(Lock was requested by:\n{})", jf.getLockOwner().getThreadName(), caller );
+                logger.trace( "<<<WAIT (any file activity): Not locked" );
+                return true;
             }
 
-            try
+            String caller = logger.isDebugEnabled() ? truncatedStackTrace() : null;
+            logger.trace( "wait called from:\n  {}", caller );
+
+            boolean proceed = false;
+            //        System.out.println( "Waiting (" + ( timeout < 0 ? "indeterminate time" : timeout + "ms" ) + ") for: " + file );
+
+            final long ends = timeout < 0 ? -1 : System.currentTimeMillis() + timeout;
+            while ( ends < 0 || System.currentTimeMillis() < ends )
             {
-                streams.wait( ( timeout > 0 && timeout < 1000 ) ? timeout : 1000 );
+                jf = findLockedFile( file );
+                if ( jf == null )
+                {
+                    logger.debug( "Lock cleared for: {}\n\n(Lock was requested by:\n{})", file, caller );
+                    proceed = true;
+                    break;
+                }
+                else
+                {
+                    logger.debug( "Lock still held by: {}\n\n(Lock was requested by:\n{})", jf.getLockOwner().getThreadName(), caller );
+                }
+
+                try
+                {
+                    locks.wait( ( timeout > 0 && timeout < 1000 ) ? timeout : 1000 );
+                }
+                catch ( final InterruptedException e )
+                {
+                    Thread.currentThread().interrupt();
+                    proceed = false;
+                }
             }
-            catch ( final InterruptedException e )
-            {
-                Thread.currentThread().interrupt();
-                proceed = false;
-            }
+
+            logger.trace( "<<<WAIT (any file activity): {}", proceed );
+            return proceed;
         }
-
-        logger.trace( "<<<WAIT (any file activity): {}", proceed );
-        return proceed;
     }
 
     private String truncatedStackTrace()
@@ -548,18 +548,19 @@ public class JoinableFileManager
         @Override
         public void closed()
         {
+            logger.trace( ">>>closed() :: CLOSE/UNLOCK: {} at:\n\n  {}", file, stackTrace() );
+            logger.trace( "Removing file from joinableStreams." );
+            locks.remove( file.getPath() );
+            logger.trace( "<<<closed() :: CLOSE/UNLOCK" );
         }
 
         @Override
         public void beforeClose()
         {
-            logger.trace( ">>>beforeClose() :: CLOSE/UNLOCK: {} at:\n\n  {}", file, stackTrace() );
-            synchronized ( streams )
-            {
-                logger.trace( "Removing file from joinableStreams." );
-                streams.remove( file );
-            }
-            logger.trace( "<<<beforeClose() :: CLOSE/UNLOCK" );
+//            logger.trace( ">>>beforeClose() :: CLOSE/UNLOCK: {} at:\n\n  {}", file, stackTrace() );
+//            logger.trace( "Removing file from joinableStreams." );
+//            locks.remove( file.getPath() );
+//            logger.trace( "<<<beforeClose() :: CLOSE/UNLOCK" );
         }
     }
 
