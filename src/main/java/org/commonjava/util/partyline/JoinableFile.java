@@ -41,8 +41,6 @@ import org.slf4j.LoggerFactory;
 public class JoinableFile
     implements AutoCloseable, Closeable
 {
-    private final Logger logger = LoggerFactory.getLogger( getClass() );
-
     private static final int CHUNK_SIZE = 1024 * 1024; // 1 mb
 
     private final FileChannel channel;
@@ -57,7 +55,7 @@ public class JoinableFile
 
     private int jointCount = 0;
 
-    private final File file;
+    private final String path;
 
     private final RandomAccessFile randomAccessFile;
 
@@ -99,31 +97,43 @@ public class JoinableFile
         throws IOException
     {
         this.owner = new LockOwner();
-        this.file = target;
+        this.path = target.getPath();
         this.callbacks = callbacks;
 
         target.getParentFile()
               .mkdirs();
 
-        if ( doOutput )
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        if ( target.isDirectory() )
         {
-            logger.trace( "INIT: read-write JoinableFile: {}", file );
+            logger.trace( "INIT: locking directory WITHOUT lock in underlying filesystem!" );
+            buf = null;
+            output = null;
+            randomAccessFile = null;
+            channel = null;
+            lock = null;
+            joinable = false;
+        }
+        else if ( doOutput )
+        {
+            logger.trace( "INIT: read-write JoinableFile: {}", target );
             buf = ByteBuffer.allocateDirect( CHUNK_SIZE );
             output = new JoinableOutputStream();
             randomAccessFile = new RandomAccessFile( target, "rw" );
+            channel = randomAccessFile.getChannel();
+            lock = channel.lock( 0L, Long.MAX_VALUE, false );
         }
         else
         {
-            logger.trace( "INIT: read-only JoinableFile: {}", file );
+            logger.trace( "INIT: read-only JoinableFile: {}", target );
             output = null;
             buf = null;
             logger.trace( "INIT: set flushed length to: {}", target.length() );
             flushed = target.length();
             randomAccessFile = new RandomAccessFile( target, "r" );
+            channel = randomAccessFile.getChannel();
+            lock = channel.lock( 0L, Long.MAX_VALUE, true );
         }
-
-        channel = randomAccessFile.getChannel();
-        lock = channel.lock( 0L, Long.MAX_VALUE, !doOutput );
     }
 
     public LockOwner getLockOwner()
@@ -141,6 +151,11 @@ public class JoinableFile
         return joinable;
     }
 
+    public boolean isDirectory()
+    {
+        return channel == null;
+    }
+
     /**
      * Return an {@link InputStream} instance that reads from the same {@link RandomAccessFile} that backs this output stream, and is tuned to listen
      * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
@@ -150,9 +165,12 @@ public class JoinableFile
     {
         if ( !joinable )
         {
-            throw new IOException( "Joinable file in the process of closing. Cannot join!" );
+            // if the channel is null, this is a directory lock.
+            throw new IOException( "JoinableFile is not accepting join() operations. (" +
+                                   (channel == null ? "It's a locked directory" : "It's in the process of closing.") + ")" );
         }
 
+        Logger logger = LoggerFactory.getLogger( getClass() );
         logger.debug( "JOIN: {}", Thread.currentThread()
                                              .getName() );
         jointCount++;
@@ -168,9 +186,13 @@ public class JoinableFile
         }
     }
 
+    /**
+     * Write locks happen when either a directory is locked, or the file was locked with doOutput == true.
+     */
     public boolean isWriteLocked()
     {
-        return buf != null;
+        // if the channel is null, this is a directory lock.
+        return channel == null || buf != null;
     }
 
     /**
@@ -189,7 +211,7 @@ public class JoinableFile
             output.close();
         }
 
-        if ( jointCount <= 0 )
+        if ( channel == null || jointCount <= 0 )
         {
             reallyClose();
         }
@@ -201,7 +223,8 @@ public class JoinableFile
     private synchronized void reallyClose()
         throws IOException
     {
-        logger.trace( "Really closing JoinableFile: {}", file );
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        logger.trace( "Really closing JoinableFile: {}", path );
         if ( callbacks != null )
         {
             logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
@@ -212,23 +235,27 @@ public class JoinableFile
 
         if ( output != null )
         {
-            logger.trace( "Setting length of: {} to written length: {}", file, flushed );
+            logger.trace( "Setting length of: {} to written length: {}", path, flushed );
             randomAccessFile.setLength( flushed );
         }
 
-        logger.trace( "Closing underlying channel / random-access file..." );
-        try
+        // if the channel is null, this is a directory lock.
+        if ( channel != null )
         {
-            if ( channel.isOpen() )
+            logger.trace( "Closing underlying channel / random-access file..." );
+            try
             {
-                lock.release();
-                channel.close();
+                if ( channel.isOpen() )
+                {
+                    lock.release();
+                    channel.close();
+                }
+                randomAccessFile.close();
             }
-            randomAccessFile.close();
-        }
-        catch ( ClosedChannelException e )
-        {
-            logger.debug( "Lock release failed on closed channel.", e );
+            catch ( ClosedChannelException e )
+            {
+                logger.debug( "Lock release failed on closed channel.", e );
+            }
         }
 
         if ( callbacks != null )
@@ -237,7 +264,7 @@ public class JoinableFile
             callbacks.closed();
         }
 
-        logger.trace( "JoinableFile for: {} is really closed.", file );
+        logger.trace( "JoinableFile for: {} is really closed.", path );
     }
 
     /**
@@ -252,6 +279,7 @@ public class JoinableFile
         jointCount--;
         notifyAll();
 
+        Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "jointClosed() called in: {}, current joint count: {}", this, jointCount );
         if ( jointCount <= 0 )
         {
@@ -264,11 +292,11 @@ public class JoinableFile
     }
 
     /**
-     * Retrieve the {@link File} into which content is being written.
+     * Retrieve the path that is managed in this instance.
      */
-    public File getFile()
+    public String getPath()
     {
-        return file;
+        return path;
     }
 
     public boolean isOpen()
@@ -279,6 +307,11 @@ public class JoinableFile
     public boolean isOwnedByCurrentThread()
     {
         return Thread.currentThread().getId() == owner.getThreadId();
+    }
+
+    public boolean isOwnedBy( long ownerId )
+    {
+        return ownerId == owner.getThreadId();
     }
 
     private final class JoinableOutputStream
@@ -393,8 +426,8 @@ public class JoinableFile
 
             synchronized ( JoinableFile.this )
             {
-                Logger logger = LoggerFactory.getLogger( getClass() );
-                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
+//                Logger logger = LoggerFactory.getLogger( getClass() );
+//                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
                 while ( read == flushed )
                 {
                     if ( output == null || JoinableFile.this.closed )
@@ -413,13 +446,13 @@ public class JoinableFile
                         return -1;
                     }
 
-                    logger.trace( "Joint: {} READ2: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
+//                    logger.trace( "Joint: {} READ2: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
                 }
             }
 
             if ( buf.position() == buf.limit() )
             {
-                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
+//                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
                 // map more content from the file, reading past our read-bytes count up to the number of flushed bytes from the parent stream
                 buf = channel.map( MapMode.READ_ONLY, read, flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read );
             }
@@ -427,14 +460,14 @@ public class JoinableFile
             // be extra careful...if the new buffer is empty, return EOF.
             if ( buf.position() == buf.limit() )
             {
-                logger.trace( "Joint: {} READ: New buffer is empty! Return -1", jointIdx );
+//                logger.trace( "Joint: {} READ: New buffer is empty! Return -1", jointIdx );
                 return -1;
             }
 
             final int result = buf.get();
             read++;
 
-            logger.trace( "Joint: {} Read count: {}, returning: {}", jointIdx, read, Integer.toHexString( result ) );
+//            logger.trace( "Joint: {} Read count: {}, returning: {}", jointIdx, read, Integer.toHexString( result ) );
             return result;
         }
 
@@ -446,6 +479,7 @@ public class JoinableFile
         public void close()
             throws IOException
         {
+            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "Joint: {} close() called.", jointIdx );
             closed = true;
             super.close();
@@ -453,4 +487,11 @@ public class JoinableFile
         }
     }
 
+    @Override
+    public String toString()
+    {
+        return "JoinableFile{" +
+                "path='" + path + '\'' +
+                '}';
+    }
 }

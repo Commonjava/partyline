@@ -17,6 +17,7 @@ package org.commonjava.util.partyline;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
+import static org.hamcrest.CoreMatchers.nullValue;
 import static org.junit.Assert.assertThat;
 
 import java.io.File;
@@ -41,6 +42,63 @@ import org.slf4j.LoggerFactory;
 public class JoinableFileTest
     extends AbstractJointedIOTest
 {
+
+    @Test
+    public void lockDirectory()
+            throws IOException
+    {
+        File dir = temp.newFolder();
+        dir.mkdirs();
+        JoinableFile jf = new JoinableFile( dir, false );
+
+        assertThat( jf.isWriteLocked(), equalTo( true ) );
+
+        jf.close();
+    }
+
+    @Test
+    public void lockDirectoryCannotBeWritten()
+            throws IOException
+    {
+        File dir = temp.newFolder();
+        dir.mkdirs();
+        JoinableFile jf = new JoinableFile( dir, false );
+
+        assertThat( jf.isWriteLocked(), equalTo( true ) );
+
+        OutputStream out = jf.getOutputStream();
+        assertThat( out, nullValue() );
+
+        jf.close();
+    }
+
+    @Test
+    public void lockDirectoryIsNotJoinable()
+            throws IOException
+    {
+        File dir = temp.newFolder();
+        dir.mkdirs();
+        JoinableFile jf = new JoinableFile( dir, false );
+
+        assertThat( jf.isWriteLocked(), equalTo( true ) );
+        assertThat( jf.isJoinable(), equalTo( false ) );
+
+        jf.close();
+    }
+
+    @Test( expected = IOException.class )
+    public void lockDirectoryJoinFails()
+            throws IOException
+    {
+        File dir = temp.newFolder();
+        dir.mkdirs();
+        JoinableFile jf = new JoinableFile( dir, false );
+
+        assertThat( jf.isWriteLocked(), equalTo( true ) );
+
+        jf.joinStream();
+    }
+
     @Test
     public void writeToFile()
         throws Exception
@@ -51,7 +109,7 @@ public class JoinableFileTest
         System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
         latch.await();
 
-        final File file = stream.getFile();
+        final File file = new File( stream.getPath() );
 
         System.out.println( "File length: " + file.length() );
 
@@ -80,7 +138,7 @@ public class JoinableFileTest
         stream.write( shorter.getBytes() );
         stream.close();
 
-        final File file = jf.getFile();
+        final File file = new File( jf.getPath() );
 
         System.out.println( "File length: " + file.length() );
         assertThat( file.length(), equalTo( (long) shorter.getBytes().length ) );
@@ -176,9 +234,9 @@ public class JoinableFileTest
         finally
         {
             logger.info( "CLOSE first thread" );
-            s1.close();
+            IOUtils.closeQuietly( s1 );
             logger.info( "CLOSE second thread" );
-            s2.close();
+            IOUtils.closeQuietly( s2 );
         }
 
         assertThat( jf, notNullValue() );

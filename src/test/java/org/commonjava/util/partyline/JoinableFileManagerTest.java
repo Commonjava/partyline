@@ -59,9 +59,9 @@ public class JoinableFileManagerTest
         assertThat( mgr.isReadLocked( f ), equalTo( false ) );
     }
 
-    @Test
+    @Test( expected = IOException.class )
     public void openOutputStream_TimeBoxedSecondCallReturnsNull()
-        throws Exception
+            throws Exception
     {
         final File f = temp.newFile();
         final OutputStream stream = mgr.openOutputStream( f );
