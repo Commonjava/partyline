@@ -15,6 +15,10 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.util.partyline.callback.StreamCallbacks;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -26,10 +30,6 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.FileLock;
-
-import org.commonjava.util.partyline.callback.StreamCallbacks;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
@@ -468,7 +468,8 @@ public class JoinableFile
             read++;
 
 //            logger.trace( "Joint: {} Read count: {}, returning: {}", jointIdx, read, Integer.toHexString( result ) );
-            return result;
+            // byte is signed in java. Converting to unsigned:
+            return result & 0xff;
         }
 
         /**
