@@ -1,0 +1,9 @@
+RULE hold closed
+CLASS JoinableFileManager$StreamCallback
+METHOD closed
+AT ENTRY
+IF TRUE
+DO
+    debug("wait for closed");
+    java.lang.Thread.sleep(1000);
+ENDRULE
