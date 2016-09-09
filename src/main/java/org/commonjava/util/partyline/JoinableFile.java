@@ -51,8 +51,6 @@ public class JoinableFile
 
     private long flushed = 0;
 
-    private final ByteBuffer buf;
-
     private int jointCount = 0;
 
     private final String path;
@@ -107,7 +105,6 @@ public class JoinableFile
         if ( target.isDirectory() )
         {
             logger.trace( "INIT: locking directory WITHOUT lock in underlying filesystem!" );
-            buf = null;
             output = null;
             randomAccessFile = null;
             channel = null;
@@ -117,7 +114,6 @@ public class JoinableFile
         else if ( doOutput )
         {
             logger.trace( "INIT: read-write JoinableFile: {}", target );
-            buf = ByteBuffer.allocateDirect( CHUNK_SIZE );
             output = new JoinableOutputStream();
             randomAccessFile = new RandomAccessFile( target, "rw" );
             channel = randomAccessFile.getChannel();
@@ -127,7 +123,6 @@ public class JoinableFile
         {
             logger.trace( "INIT: read-only JoinableFile: {}", target );
             output = null;
-            buf = null;
             logger.trace( "INIT: set flushed length to: {}", target.length() );
             flushed = target.length();
             randomAccessFile = new RandomAccessFile( target, "r" );
@@ -180,7 +175,7 @@ public class JoinableFile
     private void checkWritable()
             throws IOException
     {
-        if ( buf == null )
+        if ( output == null )
         {
             throw new IOException( "JoinableFile is not writable!" );
         }
@@ -192,7 +187,7 @@ public class JoinableFile
     public boolean isWriteLocked()
     {
         // if the channel is null, this is a directory lock.
-        return channel == null || buf != null;
+        return channel == null || output != null;
     }
 
     /**
@@ -319,12 +314,14 @@ public class JoinableFile
     {
         private boolean closed;
 
+        private ByteBuffer buf = ByteBuffer.allocateDirect( CHUNK_SIZE );
+
         /**
          * If the stream is marked as closed, throw {@link IOException}. If the INTERNAL buffer is full, call {@link #flush()}. Then, write the byte to
          * the buffer and increment the written-byte count.
          */
         @Override
-        public synchronized void write( final int b )
+        public void write( final int b )
                 throws IOException
         {
             if ( closed )
@@ -345,16 +342,19 @@ public class JoinableFile
          * read limit for associated {@link JoinInputStream}s. Notify anyone listening that there is new content via {@link JoinableFile#notifyAll()}.
          */
         @Override
-        public synchronized void flush()
+        public void flush()
                 throws IOException
         {
             buf.flip();
-            flushed += channel.write( buf );
+            int count = channel.write( buf );
             buf.clear();
 
             super.flush();
 
-            notifyAll();
+            synchronized ( JoinableFile.this ) {
+                flushed += count;
+                JoinableFile.this.notifyAll();
+            }
 
             if ( callbacks != null )
             {
@@ -368,7 +368,7 @@ public class JoinableFile
          * to 0.
          */
         @Override
-        public synchronized void close()
+        public void close()
                 throws IOException
         {
             closed = true;
