@@ -244,6 +244,30 @@ public class JoinableFileTest
     }
 
     @Test
+    public void joinFileWriteContinueAfterInputStreamClose()
+            throws Exception
+    {
+        final CountDownLatch latch = new CountDownLatch( 1 );
+        final JoinableFile stream = startTimedWrite( 1, latch );
+
+        InputStream inStream = stream.joinStream();
+        InputStream inStream2 = stream.joinStream();
+        Thread.sleep(1000);
+        inStream.close();
+        inStream2.close();
+        System.out.println( "All input stream closed. Waiting for " + name.getMethodName() + " writer thread to complete." );
+        latch.await();
+
+        final File file = new File( stream.getPath() );
+        System.out.println( "File length: " + file.length() );
+
+        final List<String> lines = FileUtils.readLines( file );
+        System.out.println( lines );
+
+        assertThat( lines.size(), equalTo( COUNT ) );
+    }
+
+    @Test
     public void joinFileWriteJustBeforeFinished()
         throws Exception
     {

@@ -263,26 +263,23 @@ public class JoinableFile
     }
 
     /**
-     * Callback for use in {@link JoinInputStream} to notify this stream to decrement its count of associated input streams. Then, call 
-     * {@link #notifyAll()} just in case {@link #close()} is executing, so it can re-check the jointCount and see if it's time to close down
-     * the backing storage.
+     * Callback for use in {@link JoinInputStream} to notify this stream to decrement its count of associated input streams.
      * @throws IOException 
      */
     private synchronized void jointClosed()
         throws IOException
     {
         jointCount--;
-        notifyAll();
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "jointClosed() called in: {}, current joint count: {}", this, jointCount );
         if ( jointCount <= 0 )
         {
-            if ( output == null )
+            if ( output == null || output.closed )
             {
                 closed = true;
+                reallyClose();
             }
-            reallyClose();
         }
     }
 
