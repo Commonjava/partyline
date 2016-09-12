@@ -332,7 +332,7 @@ public class JoinableOutputStream
             final int result = buf.get();
             read++;
 
-            return result;
+            return result & 0xff;
         }
 
         /**

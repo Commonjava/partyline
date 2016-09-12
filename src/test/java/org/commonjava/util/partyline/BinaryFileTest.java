@@ -1,0 +1,94 @@
+/**
+ * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *         http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.commonjava.util.partyline;
+
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.junit.BeforeClass;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.Assert.fail;
+
+/**
+ * Author: Michal Szynkiewicz, michal.l.szynkiewicz@gmail.com
+ * Date: 9/3/16
+ * Time: 10:46 PM
+ */
+public class BinaryFileTest {
+
+    @Rule
+    public TemporaryFolder temp = new TemporaryFolder();
+
+    private void writeBinaryFile( JoinableOutputStream jos, ByteArrayOutputStream written ) throws IOException
+    {
+        try
+        {
+            for ( int i = 0; i < 255; i++ )
+            {
+                jos.write(i);
+                written.write( i );
+            }
+        }
+        finally
+        {
+            IOUtils.closeQuietly( jos );
+        }
+    }
+
+    @Test
+    public void shouldReadBinaryFile() throws IOException
+    {
+        List<String> failures = new ArrayList<>();
+
+        File binaryFile = temp.newFile( "binary-file.bin" );
+        JoinableOutputStream jos = new JoinableOutputStream( binaryFile );
+        InputStream actual = jos.joinStream();
+
+        ByteArrayOutputStream written = new ByteArrayOutputStream();
+        writeBinaryFile( jos, written );
+
+        int pos = 0;
+        int exp, act;
+
+        ByteArrayInputStream expected = new ByteArrayInputStream( written.toByteArray() );
+        while ( ( exp = expected.read() ) != -1 )
+        {
+            act = actual.read();
+            pos++;
+
+            if ( act != exp )
+            {
+                failures.add( String.format( "Failure at position %d. Expected %d, got %d", pos, exp, act ) );
+            }
+        }
+
+        if ( !failures.isEmpty() )
+        {
+            fail( "Failures: " + failures );
+        }
+    }
+}
