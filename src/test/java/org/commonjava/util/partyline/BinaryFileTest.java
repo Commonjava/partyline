@@ -15,14 +15,20 @@
  */
 package org.commonjava.util.partyline;
 
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,20 +41,23 @@ import static org.junit.Assert.fail;
  */
 public class BinaryFileTest {
 
-    private static File binaryFile;
+    @Rule
+    public TemporaryFolder temp = new TemporaryFolder();
 
-    @BeforeClass
-    public static void prepareBinaryFile() throws IOException
+    private void writeBinaryFile( OutputStream jos, ByteArrayOutputStream written ) throws IOException
     {
-        binaryFile = File.createTempFile( "BinaryFileTest", ".bin" );
-        try (FileOutputStream fos = new FileOutputStream(binaryFile))
+        try
         {
             for ( int i = 0; i < 255; i++ )
             {
-                fos.write(i);
+                jos.write(i);
+                written.write( i );
             }
         }
-        binaryFile.deleteOnExit();
+        finally
+        {
+            IOUtils.closeQuietly( jos );
+        }
     }
 
     @Test
@@ -56,12 +65,18 @@ public class BinaryFileTest {
     {
         List<String> failures = new ArrayList<>();
 
-        FileInputStream expected = new FileInputStream( binaryFile );
-        InputStream actual = new JoinableFileManager().openInputStream( binaryFile );
+        File binaryFile = temp.newFile( "binary-file.bin" );
+        JoinableFile jf = new JoinableFile( binaryFile, true );
+        OutputStream jos = jf.getOutputStream();
+        InputStream actual = jf.joinStream();
+
+        ByteArrayOutputStream written = new ByteArrayOutputStream();
+        writeBinaryFile( jos, written );
 
         int pos = 0;
         int exp, act;
 
+        ByteArrayInputStream expected = new ByteArrayInputStream( written.toByteArray() );
         while ( ( exp = expected.read() ) != -1 )
         {
             act = actual.read();
