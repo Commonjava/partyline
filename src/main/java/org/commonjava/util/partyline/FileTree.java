@@ -15,26 +15,27 @@
  */
 package org.commonjava.util.partyline;
 
+import org.apache.commons.io.IOUtils;
+import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import static java.lang.Boolean.FALSE;
 import static org.apache.commons.lang.StringUtils.isEmpty;
 
 /**
@@ -42,7 +43,12 @@ import static org.apache.commons.lang.StringUtils.isEmpty;
  */
 public class FileTree
 {
+
     private final String name;
+
+    private final FileTree parent;
+
+    private LockOwner lock;
 
     private JoinableFile file;
 
@@ -50,12 +56,14 @@ public class FileTree
 
     public FileTree()
     {
+        this.parent = null;
         this.name = "/";
         this.file = null;
     }
 
-    private FileTree( String name )
+    private FileTree( FileTree parent, String name )
     {
+        this.parent = parent;
         this.name = name;
         this.file = null;
     }
@@ -86,146 +94,6 @@ public class FileTree
                 fileConsumer.accept( tree.file );
             }
         } );
-    }
-
-    public synchronized JoinableFile remove( String path )
-    {
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        FileTree root = this;
-        Map<FileTree, String> emptySegments = new HashMap<>();
-        JoinableFile result = traversePathAnd( path, "REMOVE", ( ref, part ) -> {
-            FileTree current = ref.get();
-            if ( current != null )
-            {
-                FileTree child = current.subTrees.get( part );
-                if ( child != null && child.file == null )
-                {
-                    logger.trace(
-                            "REMOVE: Adding {}/{} to empty segments list for purge in case we find the file we want to remove.",
-                            current, part );
-                    emptySegments.put( current, part );
-                }
-
-                logger.trace( "REMOVE: Continuing path traversal with: {}", child );
-                ref.set( child );
-            }
-        }, ( current ) -> {
-            logger.trace( "REMOVE: Clearing {} from: {}", current.file, current );
-            JoinableFile file = current.file;
-            current.file = null;
-            return file;
-        }, null );
-
-        // prune back the intermediate empty entries.
-        if ( result != null && !emptySegments.isEmpty() )
-        {
-            emptySegments.forEach( ( parent, childName ) -> {
-                logger.trace( "REMOVE: Purging empty intermediate tree segment: {}/{}", parent, childName );
-                parent.subTrees.remove( childName );
-            } );
-        }
-
-        notifyAll();
-
-        return result;
-    }
-
-    public synchronized void add( JoinableFile joinableFile )
-    {
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        traversePathAnd( joinableFile.getPath(), "ADD", ( ref, part ) -> {
-            FileTree current = ref.get();
-            FileTree child = current.subTrees.get( part );
-            if ( child == null )
-            {
-                child = new FileTree( part );
-                current.subTrees.put( part, child );
-                logger.trace( "Created child: {} of: {}", child, current );
-            }
-            ref.set( child );
-        }, ( current ) -> {
-            current.file = joinableFile;
-            logger.trace( "Set file: {} on: {}", current.file, current );
-            return null;
-        }, null );
-
-        notifyAll();
-    }
-
-    public boolean hasChildren( File file )
-    {
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        return traversePathAnd( file.getPath(), "HAS_CHILDREN", ( ref, part ) -> {
-            FileTree current = ref.get();
-            logger.trace( "HAS_CHILREN: At: {}, retrieve: {}", current, part );
-            if ( current != null )
-            {
-                ref.set( current.subTrees == null ? null : current.subTrees.get( part ) );
-            }
-        }, ( current ) -> current.subTrees != null && !current.subTrees.isEmpty(), FALSE );
-    }
-
-    public JoinableFile getFile( File file )
-    {
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        return traversePathAnd( file.getPath(), "GET", ( ref, part ) -> {
-            FileTree current = ref.get();
-            logger.trace( "GET: At: {}, retrieve: {}", current, part );
-
-            if ( current != null )
-            {
-                ref.set( current.subTrees == null ? null : current.subTrees.get( part ) );
-            }
-        }, ( current ) -> current.file, null );
-    }
-
-    public JoinableFile findAncestorFile( File file, Predicate<JoinableFile> filter )
-    {
-        List<FileTree> reversedPath = new ArrayList<>();
-
-        traversePathAnd( file.getPath(), "FIND_ANCESTOR", ( ref, part ) -> {
-            FileTree current = ref.get();
-            FileTree child = current.subTrees == null ? null : current.subTrees.get( part );
-            if ( child != null )
-            {
-                reversedPath.add( 0, child );
-                ref.set( child );
-            }
-        }, ( current ) -> null, null );
-
-        Optional<JoinableFile> result = reversedPath.stream()
-                                                    .filter( ( tree ) -> tree.file != null && filter.test( tree.file ) )
-                                                    .map( ( tree ) -> tree.file )
-                                                    .findFirst();
-        return result.isPresent() ? result.get() : null;
-    }
-
-    public JoinableFile findChildFile( File file, Predicate<JoinableFile> filter )
-    {
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        FileTree tree = traversePathAnd( file.getPath(), "FIND_DESCENDANT", ( ref, part ) -> {
-            FileTree current = ref.get();
-            if ( current != null )
-            {
-                ref.set( current.subTrees.get( part ) );
-            }
-        }, ( current ) -> current, null );
-
-        if ( tree == null )
-        {
-            return null;
-        }
-
-        AtomicReference<JoinableFile> result = new AtomicReference<>();
-        searchAnd(tree, "FIND_DESCENDANT", (t)->true, (t)->{
-            if ( result.get() == null && t.file != null && filter.test( t.file ) )
-            {
-                logger.trace( "FIND_DESCENDANT: Selecting file from sub-tree node: {}", tree );
-                result.set( tree.file );
-            }
-        });
-
-        return result.get();
     }
 
     public String renderTree()
@@ -270,8 +138,159 @@ public class FileTree
         }
     }
 
+    public <T> T findNodeAnd( File file, Function<FileTree, T> function, T defValue )
+    {
+        return traversePathAnd( file.getPath(), "FIND IN TREE", ( ref, part ) -> {
+            FileTree current = ref.get();
+            if ( current != null )
+            {
+                ref.set( current.subTrees.get( part ) );
+            }
+
+            return ref.get() != null;
+        }, (node)->function.apply( node ), defValue );
+    }
+
+    public <T> T withNode( File file, boolean autoCreate, long timeoutMs, Function<FileTree, T> function, T defValue )
+    {
+        Logger logger = LoggerFactory.getLogger( getClass() );
+
+        return traversePathAnd( file.getPath(), "MODIFY TREE", ( ref, part ) -> {
+            FileTree current = ref.get();
+            if ( current != null )
+            {
+                if ( autoCreate )
+                {
+                    boolean result = lockAnd(current, timeoutMs, true, ()->{
+                        FileTree child = null;
+                        child = current.subTrees.get( part );
+                        logger.trace( "{} child of: {} is: {}", part, current, child );
+                        if ( child == null )
+                        {
+                            child = new FileTree( current, part );
+                            current.subTrees.put( part, child );
+                            logger.trace( "Created child: {} of: {}", child, current );
+                        }
+                        ref.set( child );
+                        return true;
+                    }, false );
+
+                    if ( !result )
+                    {
+                        ref.set( null );
+                    }
+                }
+                else
+                {
+                    ref.set( current.subTrees.get( part ) );
+                }
+            }
+
+            return ref.get() != null;
+        }, (node)->lockAnd(node, timeoutMs, false, ()->function.apply( node ), defValue ), defValue );
+    }
+
+    private <T> T lockAnd( FileTree current, long timeoutMs, boolean unlock, Supplier<T> resultSupplier, T defaultValue )
+    {
+        if ( current == null )
+        {
+            return defaultValue;
+        }
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        boolean locked = false;
+        try
+        {
+            logger.trace( "LOCK {}", current.name );
+            if ( timeoutMs > 1000 )
+            {
+                locked = current.tryLock( timeoutMs, TimeUnit.MILLISECONDS );
+            }
+            else
+            {
+                locked = current.tryLock( 1000, TimeUnit.MILLISECONDS );
+            }
+
+            if ( locked )
+            {
+                logger.trace( "locked" );
+            }
+            else
+            {
+                logger.trace( "LOCK FAILED: {}", current.name );
+            }
+
+            if ( locked && resultSupplier != null )
+            {
+                return resultSupplier.get();
+            }
+        }
+        catch ( InterruptedException e )
+        {
+            logger.warn( "Interrupted while trying to withNode FileTree at: {}. Aborting...", file );
+        }
+        finally
+        {
+            if ( unlock && locked )
+            {
+                logger.trace( "UNLOCK: {}", current.name );
+                current.unlock();
+                logger.trace( "unlocked" );
+            }
+        }
+
+        return defaultValue;
+    }
+
+    public boolean isLocked()
+    {
+        return lock != null;
+    }
+
+    public synchronized void unlock()
+    {
+        if ( file != null )
+        {
+            IOUtils.closeQuietly( file );
+        }
+
+        if ( lock != null )
+        {
+            lock = null;
+            notifyAll();
+        }
+    }
+
+    private boolean tryLock( long timeoutMs, TimeUnit milliseconds )
+            throws InterruptedException
+    {
+        long end = timeoutMs > 0 ? System.currentTimeMillis() + timeoutMs : -1;
+
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        logger.trace( "{}: Trying to lock until: {}", System.currentTimeMillis(), end );
+        while ( end < 0 || System.currentTimeMillis() < end )
+        {
+            synchronized ( this )
+            {
+                wait( 100 );
+                if ( lock == null )
+                {
+                    lock = new LockOwner();
+                    notifyAll();
+                    return true;
+                }
+                else if ( lock.getThreadId() == Thread.currentThread().getId() )
+                {
+                    return true;
+                }
+            }
+        }
+
+        logger.trace( "{}: Lock failed", System.currentTimeMillis() );
+        return false;
+    }
+
     private synchronized <T> T traversePathAnd( String path, String label,
-                                                BiConsumer<AtomicReference<FileTree>, String> traverser,
+                                                BiFunction<AtomicReference<FileTree>, String, Boolean> inbound,
                                                 Function<FileTree, T> resultProcessor, T defValue )
     {
         if ( isEmpty( path ) )
@@ -288,6 +307,7 @@ public class FileTree
 
         Logger logger = LoggerFactory.getLogger( getClass() );
 
+        List<FileTree> nodes = new ArrayList<>();
         // TODO: doesn't work on Windows...
         AtomicReference<FileTree> ref = new AtomicReference<>( this );
         logger.trace( "{}: Start at: {}", label, this );
@@ -298,18 +318,29 @@ public class FileTree
             return defValue;
         }
 
-        Stream.of( parts).skip( isEmpty( parts[0])?1:0).forEach( ( part ) -> traverser.accept( ref, part ) );
+        Stream.of( parts ).skip( isEmpty( parts[0] ) ? 1 : 0 ).map( ( part ) -> {
+            Boolean proceed = inbound.apply( ref, part );
+            if ( proceed )
+            {
+                nodes.add( ref.get() );
+            }
+            return proceed;
+        } ).filter( ( r ) -> !r ).findFirst();
 
         FileTree current = ref.get();
         logger.trace( "{}: Returning traversal result of: {}", label, current );
+
+        T result;
         if ( current != null && current != this )
         {
-            return resultProcessor.apply( current );
+            result = resultProcessor.apply( current );
         }
         else
         {
-            return defValue;
+            result = defValue;
         }
+
+        return result;
     }
 
     private synchronized void searchAnd( FileTree start, String label, Predicate<FileTree> filter, Consumer<FileTree> processor )
@@ -350,4 +381,64 @@ public class FileTree
         while ( !toExamine.isEmpty() );
     }
 
+    public JoinableFile getFile()
+    {
+        return file;
+    }
+
+    public JoinableFile setFile( File realFile, StreamCallbacks callbacks, boolean doOutput )
+            throws IOException
+    {
+        this.file = new JoinableFile( realFile, lock, new FileTreeCallbacks( callbacks ), doOutput );
+        return this.file;
+    }
+
+    private class FileTreeCallbacks
+            implements StreamCallbacks
+    {
+        private StreamCallbacks callbacks;
+
+        public FileTreeCallbacks( StreamCallbacks callbacks )
+        {
+            this.callbacks = callbacks;
+        }
+
+        @Override
+        public void flushed()
+        {
+            if ( callbacks != null )
+            {
+                callbacks.flushed();
+            }
+        }
+
+        @Override
+        public void beforeClose()
+        {
+            if ( callbacks != null )
+            {
+                callbacks.beforeClose();
+            }
+
+            //            FileTree.this.lock.lock();
+            FileTree.this.file = null;
+            //            FileTree.this.lock.unlock();
+        }
+
+        @Override
+        public void closed()
+        {
+            if ( callbacks != null )
+            {
+                callbacks.closed();
+            }
+
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            while ( FileTree.this.isLocked() )
+            {
+                logger.trace( "unlocking" );
+                FileTree.this.unlock();
+            }
+        }
+    }
 }

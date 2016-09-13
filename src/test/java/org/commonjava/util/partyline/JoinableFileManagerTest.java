@@ -34,6 +34,8 @@ import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class JoinableFileManagerTest
     extends AbstractJointedIOTest
@@ -60,7 +62,7 @@ public class JoinableFileManagerTest
     }
 
     @Test( expected = IOException.class )
-    public void openOutputStream_TimeBoxedSecondCallReturnsNull()
+    public void openOutputStream_TimeBoxedSecondCallThrowsException()
             throws Exception
     {
         final File f = temp.newFile();
@@ -88,13 +90,12 @@ public class JoinableFileManagerTest
 
         final OpenOutputStream secondRunnable = new OpenOutputStream( f, -1 );
         final Map<String, Long> timings =
-            testTimings( 7, new TimedTask( first, new OpenOutputStream( f, 100 ) ), new TimedTask( second,
+            testTimings( 10, new TimedTask( first, new OpenOutputStream( f, 100 ) ), new TimedTask( second,
                                                                                                    secondRunnable ) );
 
         System.out.println( first + " completed at: " + timings.get( first ) );
         System.out.println( second + " completed at: " + timings.get( second ) );
 
-        IOUtils.closeQuietly( secondRunnable );
         assertThat( first + " completed at: " + timings.get( first ) + "\n" + second + " completed at: "
                         + timings.get( second ) + "\nFirst should complete before second.",
                     timings.get( first ) < timings.get( second ), equalTo( true ) );
@@ -116,8 +117,6 @@ public class JoinableFileManagerTest
 
         System.out.println( first + " completed at: " + timings.get( first ) );
         System.out.println( second + " completed at: " + timings.get( second ) );
-
-        IOUtils.closeQuietly( secondRunnable );
     }
 
     @Test
@@ -188,17 +187,15 @@ public class JoinableFileManagerTest
     public void lockFile_OpenOutputStreamWaitsForUnlock()
         throws Exception
     {
-        final File f = temp.newFile();
+        final File f = temp.newFile("test.txt");
         final OpenOutputStream outputRunnable = new OpenOutputStream( f, -1 );
 
         final String lockUnlock = "lock-unlock";
         final String output = "output";
 
         final Map<String, Long> timings =
-            testTimings( 10, new TimedTask( lockUnlock, new LockThenUnlockFile( f, 100 ) ),
+            testTimings( 200, new TimedTask( lockUnlock, new LockThenUnlockFile( f, 100 ) ),
                          new TimedTask( output, outputRunnable ) );
-
-        IOUtils.closeQuietly( outputRunnable );
 
         System.out.println( "Lock-Unlock completed at: " + timings.get( lockUnlock ) );
         System.out.println( "OpenOutputStream completed at: " + timings.get( output ) );
@@ -210,7 +207,7 @@ public class JoinableFileManagerTest
     }
 
     private final class OpenOutputStream
-        implements Runnable, Closeable
+        implements Runnable
     {
         private final long timeout;
 
@@ -260,16 +257,6 @@ public class JoinableFileManagerTest
                 IOUtils.closeQuietly( stream );
             }
         }
-
-        @Override
-        public void close()
-            throws IOException
-        {
-            if ( stream != null )
-            {
-                stream.close();
-            }
-        }
     }
 
     private final class LockThenUnlockFile
@@ -288,17 +275,17 @@ public class JoinableFileManagerTest
         @Override
         public void run()
         {
+            Logger logger = LoggerFactory.getLogger( getClass() );
             try
             {
-                //            System.out.println( Thread.currentThread()
-                //                                      .getName() + ": Locking: " + file );
-                final boolean locked = mgr.lock( file, true );
-                //            System.out.println( Thread.currentThread()
-                //                                      .getName() + ": Locked: " + file + "? " + locked );
+                logger.trace( "locking: {}", file );
+                final boolean locked = mgr.lock( file, 100, true );
+
+                logger.trace( "locked? {}", locked );
+
                 assertThat( locked, equalTo( true ) );
 
-                //                System.out.println( Thread.currentThread()
-                //                                          .getName() + ": Waiting for unlock: " + timeout + "ms" );
+                logger.trace( "Waiting {}ms to unlock...", timeout );
                 Thread.sleep( timeout );
             }
             catch ( final InterruptedException e )
@@ -311,11 +298,8 @@ public class JoinableFileManagerTest
                 Assert.fail( "Failed to acquire lock on: " + file );
             }
 
-            //            System.out.println( Thread.currentThread()
-            //                                      .getName() + ": Unlocking: " + file );
+            logger.trace( "unlocking: {}", file );
             assertThat( mgr.unlock( file ), equalTo( true ) );
-            //            System.out.println( Thread.currentThread()
-            //                                      .getName() + ": Unlocked: " + file );
         }
     }
 

@@ -16,6 +16,7 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -40,45 +41,30 @@ public class FileTreeTest
     public TemporaryFolder temp = new TemporaryFolder();
 
     @Test
-    public void addChildAndVerifyHasChildren()
-            throws IOException
-    {
-        FileTree root = new FileTree();
-        File child = createStructure( "child.txt", true );
-        JoinableFile jf = new JoinableFile( child, false );
-        root.add( jf );
-
-        assertThat( root.hasChildren( child.getParentFile() ), equalTo( true ) );
-    }
-
-    @Test
-    public void addDirAndVerifyAncestorOfChild()
-            throws IOException
-    {
-        FileTree root = new FileTree();
-        File child = createStructure( "parent/child.txt", true );
-        File parent = child.getParentFile();
-        JoinableFile jf = new JoinableFile( parent, false );
-        root.add( jf );
-
-        JoinableFile result = root.findAncestorFile( child, (file)->true );
-
-        assertThat( result, notNullValue() );
-        assertThat( result, sameInstance( jf ) );
-    }
-
-    @Test
     public void addChildAndRetrieve()
             throws IOException
     {
         FileTree root = new FileTree();
         File child = createStructure( "child.txt", true );
-        JoinableFile jf = new JoinableFile( child, false );
-        root.add( jf );
+        setFile( root, child );
 
-        JoinableFile result = root.getFile( child );
+        assertThat( root.withNode( child.getParentFile(), false, -1, (node)->true, false ), equalTo( true ) );
+    }
 
-        assertThat( result, notNullValue() );
+    private JoinableFile setFile( FileTree root, File f )
+    {
+        return root.withNode( f, true, -1, ( node ) -> {
+            try
+            {
+                return node.setFile( f, null, false );
+            }
+            catch ( IOException e )
+            {
+                e.printStackTrace();
+                Assert.fail( "Failed to create new JoinableFile");
+            }
+            return null;
+        }, null );
     }
 
     @Test
@@ -87,8 +73,9 @@ public class FileTreeTest
     {
         FileTree root = new FileTree();
         File child = createStructure( "child.txt", true );
-        JoinableFile jf = new JoinableFile( child, false );
-        root.add( jf );
+        JoinableFile jf = setFile( root, child );
+//        JoinableFile jf = new JoinableFile( child, false );
+//        root.add( jf );
 
         System.out.println(root.renderTree());
     }

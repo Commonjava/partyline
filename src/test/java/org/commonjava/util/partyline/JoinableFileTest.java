@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
@@ -49,7 +50,7 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -62,7 +63,7 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -78,7 +79,7 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
         assertThat( jf.isJoinable(), equalTo( false ) );
@@ -92,7 +93,7 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -124,14 +125,14 @@ public class JoinableFileTest
             throws Exception
     {
         File f = temp.newFile();
-        JoinableFile jf = new JoinableFile( f, true );
+        JoinableFile jf = new JoinableFile( f, new LockOwner(), true );
         OutputStream stream = jf.getOutputStream();
 
         String longer = "This is a really really really long string";
         stream.write( longer.getBytes() );
         stream.close();
 
-        jf = new JoinableFile( f,true );
+        jf = new JoinableFile( f,new LockOwner(), true );
         stream = jf.getOutputStream();
 
         String shorter = "This is a short string";
@@ -219,7 +220,7 @@ public class JoinableFileTest
         Logger logger = LoggerFactory.getLogger( getClass() );
         try
         {
-            jf = new JoinableFile( f, false );
+            jf = new JoinableFile( f, new LockOwner(), false );
             s1 = jf.joinStream();
             s2 = jf.joinStream();
 
@@ -298,7 +299,7 @@ public class JoinableFileTest
     public void outputStreamWaitsForSingleJoinedInputStreamToClose()
         throws Exception
     {
-        final JoinableFile jf = new JoinableFile( temp.newFile(), true );
+        final JoinableFile jf = new JoinableFile( temp.newFile(), new LockOwner(), true );
 
         final String out = "output";
         final String in = "input";
@@ -318,7 +319,7 @@ public class JoinableFileTest
     public void outputStreamWaitsForTwoJoinedInputStreamsToClose()
         throws Exception
     {
-        final JoinableFile jf = new JoinableFile( temp.newFile(), true );
+        final JoinableFile jf = new JoinableFile( temp.newFile(), new LockOwner(), true );
 
         final String out = "output";
         final String in = "input";
