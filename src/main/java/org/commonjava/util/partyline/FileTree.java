@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -353,16 +354,12 @@ public class FileTree
         Logger logger = LoggerFactory.getLogger( getClass() );
 
         // TODO: doesn't work on Windows...
-        List<FileTree> toExamine = new ArrayList<>();
+        List<FileTree> toExamine = Collections.synchronizedList(new ArrayList<>());
         toExamine.add( start );
 
         do
         {
-            FileTree next;
-            synchronized ( toExamine )
-            {
-                next = toExamine.remove( 0 );
-            }
+            FileTree next = toExamine.remove( 0 );
 
             if ( next.subTrees != null && !next.subTrees.isEmpty() )
             {
@@ -370,11 +367,8 @@ public class FileTree
                 next.subTrees.values().parallelStream().filter( filter ).forEach( ( tree ) -> {
                     logger.trace( "{}: processing {}", label, tree );
                     processor.accept( tree );
-                    synchronized ( toExamine )
-                    {
-                        logger.trace( "{}: Adding {} to list of tree awaiting examination.", label, tree );
-                        toExamine.add( tree );
-                    }
+                    logger.trace( "{}: Adding {} to list of tree awaiting examination.", label, tree );
+                    toExamine.add( tree );
                 } );
             }
         }
