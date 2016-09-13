@@ -31,6 +31,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.FileLock;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
@@ -46,7 +47,7 @@ public class JoinableFile
 
     private final FileChannel channel;
 
-    private final FileLock lock;
+    private final FileLock fileLock;
 
     private final JoinableOutputStream output;
 
@@ -75,10 +76,10 @@ public class JoinableFile
      * Initialize the {@link JoinableOutputStream} and {@link ByteBuffer} that will buffer content before sending it on
      * to the channel (in the {@link JoinableOutputStream#flush()} method).
      */
-    public JoinableFile( final File target, boolean doOutput )
+    public JoinableFile( final File target, final LockOwner owner, boolean doOutput )
         throws IOException
     {
-        this( target, null, doOutput );
+        this( target, owner, null, doOutput );
     }
 
     /**
@@ -92,10 +93,10 @@ public class JoinableFile
      * If callbacks are available, use these to signal to a manager instance when the stream is flushed and when
      * the last joined input stream (or this stream, if there are none) closes.
      */
-    public JoinableFile( final File target, final StreamCallbacks callbacks, boolean doOutput )
+    public JoinableFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput )
         throws IOException
     {
-        this.owner = new LockOwner();
+        this.owner = owner;
         this.path = target.getPath();
         this.callbacks = callbacks;
 
@@ -109,7 +110,7 @@ public class JoinableFile
             output = null;
             randomAccessFile = null;
             channel = null;
-            lock = null;
+            fileLock = null;
             joinable = false;
         }
         else if ( doOutput )
@@ -118,7 +119,7 @@ public class JoinableFile
             output = new JoinableOutputStream();
             randomAccessFile = new RandomAccessFile( target, "rw" );
             channel = randomAccessFile.getChannel();
-            lock = channel.lock( 0L, Long.MAX_VALUE, false );
+            fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
         }
         else
         {
@@ -128,7 +129,7 @@ public class JoinableFile
             flushed = target.length();
             randomAccessFile = new RandomAccessFile( target, "r" );
             channel = randomAccessFile.getChannel();
-            lock = channel.lock( 0L, Long.MAX_VALUE, true );
+            fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
         }
     }
 
@@ -243,7 +244,7 @@ public class JoinableFile
             {
                 if ( channel.isOpen() )
                 {
-                    lock.release();
+                    fileLock.release();
                     channel.close();
                 }
                 randomAccessFile.close();
@@ -254,13 +255,19 @@ public class JoinableFile
             }
         }
 
+        logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path, Thread.currentThread().getName() );
+
+        // FIXME: This should NEVER be unlocked!!
+        //        if ( lock.isLocked() )
+        //        {
+//        lock.unlock();
+        //        }
+
         if ( callbacks != null )
         {
             logger.trace( "calling closed() on callbacks: {}", callbacks );
             callbacks.closed();
         }
-
-        logger.trace( "JoinableFile for: {} is really closed.", path );
     }
 
     /**

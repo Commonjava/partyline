@@ -22,9 +22,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.commonjava.util.partyline.AsyncFileReader;
 import org.commonjava.util.partyline.JoinableFile;
+import org.commonjava.util.partyline.LockOwner;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
@@ -50,7 +52,7 @@ public abstract class AbstractJointedIOTest
     protected Thread newThread( final String named, final Runnable runnable )
     {
         final Thread t = new Thread( runnable );
-        t.setName( name.getMethodName() + "::" + named );
+        t.setName( named );
         t.setDaemon( true );
         t.setUncaughtExceptionHandler( new UncaughtExceptionHandler()
         {
@@ -85,7 +87,7 @@ public abstract class AbstractJointedIOTest
         for ( final TimedTask task : tasks )
         {
             task.setLatch( latch );
-            newThread( name.getMethodName() + "::" + task.getName(), task ).start();
+            newThread( task.getName(), task ).start();
             try
             {
                 Thread.sleep( startDelay );
@@ -141,7 +143,8 @@ public abstract class AbstractJointedIOTest
     protected JoinableFile startTimedWrite( final File file, final long delay, final CountDownLatch latch )
         throws Exception
     {
-        final JoinableFile jf = new JoinableFile( file, true );
+        ReentrantLock lock = new ReentrantLock();
+        final JoinableFile jf = new JoinableFile( file, new LockOwner(), true );
 
         newThread( "writer" + writers++, new TimedFileWriter( jf, delay, latch ) ).start();
 

@@ -31,6 +31,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.Assert.fail;
 
@@ -66,7 +67,8 @@ public class BinaryFileTest {
         List<String> failures = new ArrayList<>();
 
         File binaryFile = temp.newFile( "binary-file.bin" );
-        JoinableFile jf = new JoinableFile( binaryFile, true );
+        ReentrantLock lock = new ReentrantLock();
+        JoinableFile jf = new JoinableFile( binaryFile, new LockOwner(), true );
         OutputStream jos = jf.getOutputStream();
         InputStream actual = jf.joinStream();
 
