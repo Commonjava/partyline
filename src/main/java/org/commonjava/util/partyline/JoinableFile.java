@@ -30,8 +30,6 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.FileLock;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
@@ -53,7 +51,7 @@ public class JoinableFile
 
     private long flushed = 0;
 
-    private AtomicInteger jointCount = new AtomicInteger( 0 );
+    private int jointCount = 0;
 
     private final String path;
 
@@ -157,7 +155,7 @@ public class JoinableFile
      * Return an {@link InputStream} instance that reads from the same {@link RandomAccessFile} that backs this output stream, and is tuned to listen
      * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
      */
-    public InputStream joinStream()
+    public synchronized InputStream joinStream()
         throws IOException
     {
         if ( !joinable )
@@ -170,8 +168,8 @@ public class JoinableFile
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.debug( "JOIN: {}", Thread.currentThread()
                                              .getName() );
-
-        return new JoinInputStream( jointCount.incrementAndGet() );
+        jointCount++;
+        return new JoinInputStream( jointCount );
     }
 
     private void checkWritable()
@@ -208,7 +206,7 @@ public class JoinableFile
             output.close();
         }
 
-        if ( channel == null || jointCount.get() <= 0 )
+        if ( channel == null || jointCount <= 0 )
         {
             reallyClose();
         }
@@ -277,11 +275,11 @@ public class JoinableFile
     private synchronized void jointClosed()
         throws IOException
     {
-        jointCount.getAndDecrement();
+        jointCount--;
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "jointClosed() called in: {}, current joint count: {}", this, jointCount );
-        if ( jointCount.get() <= 0 )
+        if ( jointCount <= 0 )
         {
             if ( output == null || output.closed )
             {
@@ -301,7 +299,7 @@ public class JoinableFile
 
     public boolean isOpen()
     {
-        return !closed || jointCount.get() > 0;
+        return !closed || jointCount > 0;
     }
 
     public boolean isOwnedByCurrentThread()
