@@ -33,6 +33,9 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.commonjava.util.partyline.FileTree.LockingBehavior.always;
+import static org.commonjava.util.partyline.FileTree.LockingBehavior.if_not_locked;
+
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
  * they are writing. Also allows the user to lock/unlock files manually in case they need to be used outside the normal streaming use cases.
@@ -42,7 +45,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public class JoinableFileManager
 {
 
-    public static final long DEFAULT_TIMEOUT = 100;
+    public static final long DEFAULT_TIMEOUT = 1000;
+
+    private static final long DEFAULT_FILETREE_TIMEOUT = 100;
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
@@ -181,7 +186,7 @@ public class JoinableFileManager
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
         while( end < 0 || System.currentTimeMillis() < end )
         {
-            result = locks.withNode( file, true, DEFAULT_TIMEOUT, ( node)->{
+            result = locks.withNode( file, true, DEFAULT_FILETREE_TIMEOUT, always, ( node)->{
                 JoinableFile joinable = node.getFile();
                 try
                 {
@@ -244,7 +249,7 @@ public class JoinableFileManager
     public InputStream openInputStream( final File file )
             throws FileNotFoundException, IOException
     {
-        return openInputStream( file, -1 );
+        return openInputStream( file, 0 );
     }
 
     /**
@@ -263,7 +268,7 @@ public class JoinableFileManager
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
         while( end < 1 || System.currentTimeMillis() < end )
         {
-            result = locks.withNode( file, true, DEFAULT_TIMEOUT, ( node ) -> {
+            result = locks.withNode( file, true, DEFAULT_FILETREE_TIMEOUT, if_not_locked, ( node ) -> {
                 JoinableFile joinable = node.getFile();
                 try
                 {
@@ -326,7 +331,7 @@ public class JoinableFileManager
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
         while( end < 0 || System.currentTimeMillis() < end )
         {
-            Boolean result = locks.withNode( file, true, DEFAULT_TIMEOUT, ( node ) -> true, false );
+            Boolean result = locks.withNode( file, true, DEFAULT_FILETREE_TIMEOUT, always, ( node ) -> true, false );
             if ( result )
             {
                 logger.trace( "<<<MANUAL LOCK (success)" );
@@ -472,66 +477,66 @@ public class JoinableFileManager
         return false;
     }
 
-//    /**
-//     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
-//     * the file becoming available for writes.
-//     *
-//     * @see #isWriteLocked(File)
-//     */
-//    public boolean waitForWriteUnlock( final File file, final long timeout )
-//    {
-//        logger.trace( ">>>WAIT (write): {} with timeout: {}", file, timeout );
-//        try
-//        {
-//            return waitForFile( file, timeout );
-//        }
-//        finally
-//        {
-//            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, timeout );
-//        }
-//    }
-//
-//    /**
-//     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
-//     * the file becoming available for writes.
-//     *
-//     * @see #isWriteLocked(File)
-//     */
-//    public boolean waitForWriteUnlock( final File file )
-//    {
-//        logger.trace( ">>>WAIT (write): {} with timeout: {}", file, -1 );
-//        try
-//        {
-//            return waitForFile( file );
-//        }
-//        finally
-//        {
-//            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, -1 );
-//        }
-//    }
-//
-//    /**
-//     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
-//     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
-//     *
-//     * @see #isReadLocked(File)
-//     */
-//    public boolean waitForReadUnlock( final File file, final long timeout )
-//    {
-//        return true;
-//    }
-//
-//    /**
-//     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
-//     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
-//     *
-//     * @see #isReadLocked(File)
-//     */
-//    public boolean waitForReadUnlock( final File file )
-//    {
-//        return true;
-//    }
-//
+    /**
+     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
+     * the file becoming available for writes.
+     *
+     * @see #isWriteLocked(File)
+     */
+    public boolean waitForWriteUnlock( final File file, final long timeout )
+    {
+        logger.trace( ">>>WAIT (write): {} with timeout: {}", file, timeout );
+        try
+        {
+            return locks.withNode( file, false, timeout, always, fileTree->true, true );
+        }
+        finally
+        {
+            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, timeout );
+        }
+    }
+
+    /**
+     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
+     * the file becoming available for writes.
+     *
+     * @see #isWriteLocked(File)
+     */
+    public boolean waitForWriteUnlock( final File file )
+    {
+        logger.trace( ">>>WAIT (write): {} with timeout: {}", file, DEFAULT_TIMEOUT );
+        try
+        {
+            return locks.withNode( file, false, DEFAULT_FILETREE_TIMEOUT, always, fileTree->true, true );
+        }
+        finally
+        {
+            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, DEFAULT_TIMEOUT );
+        }
+    }
+
+    /**
+     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
+     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
+     *
+     * @see #isReadLocked(File)
+     */
+    public boolean waitForReadUnlock( final File file, final long timeout )
+    {
+        return true;
+    }
+
+    /**
+     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
+     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
+     *
+     * @see #isReadLocked(File)
+     */
+    public boolean waitForReadUnlock( final File file )
+    {
+        return true;
+    }
+
 //    private boolean waitForFile( final File file )
 //    {
 //

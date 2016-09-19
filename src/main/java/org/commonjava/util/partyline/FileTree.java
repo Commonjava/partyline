@@ -45,6 +45,11 @@ import static org.apache.commons.lang.StringUtils.isEmpty;
 public class FileTree
 {
 
+    public enum LockingBehavior
+    {
+        always, if_not_locked, never;
+    }
+
     private final String name;
 
     private final FileTree parent;
@@ -152,9 +157,37 @@ public class FileTree
         }, (node)->function.apply( node ), defValue );
     }
 
-    public <T> T withNode( File file, boolean autoCreate, long timeoutMs, Function<FileTree, T> function, T defValue )
+    public <T> T withNode( File file, boolean autoCreate, long timeoutMs, LockingBehavior lockingBehavior, Function<FileTree, T> function, T defValue )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
+
+        Function<FileTree, T> lockFunction;
+        switch ( lockingBehavior )
+        {
+            case always:
+            {
+                lockFunction = (node)->lockAnd(node, timeoutMs, false, ()->function.apply( node ), defValue );
+                break;
+            }
+            case if_not_locked:
+            {
+                lockFunction = (node)->{
+                    if ( !node.isLocked() )
+                    {
+                        return lockAnd( node, timeoutMs, false, () -> function.apply( node ), defValue );
+                    }
+                    else
+                    {
+                        return function.apply( node );
+                    }
+                };
+                break;
+            }
+            default:
+            {
+                lockFunction = (node)->function.apply( node );
+            }
+        }
 
         return traversePathAnd( file.getPath(), "MODIFY TREE", ( ref, part ) -> {
             FileTree current = ref.get();
@@ -188,7 +221,7 @@ public class FileTree
             }
 
             return ref.get() != null;
-        }, (node)->lockAnd(node, timeoutMs, false, ()->function.apply( node ), defValue ), defValue );
+        }, lockFunction, defValue );
     }
 
     private <T> T lockAnd( FileTree current, long timeoutMs, boolean unlock, Supplier<T> resultSupplier, T defaultValue )
