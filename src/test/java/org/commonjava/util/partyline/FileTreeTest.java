@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedList;
 
+import static org.commonjava.util.partyline.FileTree.LockingBehavior.always;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.sameInstance;
@@ -48,12 +49,12 @@ public class FileTreeTest
         File child = createStructure( "child.txt", true );
         setFile( root, child );
 
-        assertThat( root.withNode( child.getParentFile(), false, -1, (node)->true, false ), equalTo( true ) );
+        assertThat( root.withNode( child.getParentFile(), false, -1, always, ( node)->true, false ), equalTo( true ) );
     }
 
     private JoinableFile setFile( FileTree root, File f )
     {
-        return root.withNode( f, true, -1, ( node ) -> {
+        return root.withNode( f, true, -1, always, ( node ) -> {
             try
             {
                 return node.setFile( f, null, false );
