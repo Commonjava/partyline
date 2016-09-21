@@ -23,10 +23,10 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,7 +47,9 @@ public class FileTree
 
     public enum LockingBehavior
     {
-        always, if_not_locked, never;
+        always,
+        if_not_locked,
+        never;
     }
 
     private final String name;
@@ -154,10 +156,11 @@ public class FileTree
             }
 
             return ref.get() != null;
-        }, (node)->function.apply( node ), defValue );
+        }, ( node ) -> function.apply( node ), defValue );
     }
 
-    public <T> T withNode( File file, String operationName, boolean autoCreate, long timeoutMs, LockingBehavior lockingBehavior, Function<FileTree, T> function, T defValue )
+    public <T> T withNode( File file, String operationName, boolean autoCreate, long timeoutMs,
+                           LockingBehavior lockingBehavior, Function<FileTree, T> function, T defValue )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
 
@@ -166,12 +169,12 @@ public class FileTree
         {
             case always:
             {
-                lockFunction = (node)->lockAnd(node, timeoutMs, false, ()->function.apply( node ), defValue );
+                lockFunction = ( node ) -> lockAnd( node, timeoutMs, false, () -> function.apply( node ), defValue );
                 break;
             }
             case if_not_locked:
             {
-                lockFunction = (node)->{
+                lockFunction = ( node ) -> {
                     if ( !node.isLocked() )
                     {
                         return lockAnd( node, timeoutMs, false, () -> function.apply( node ), defValue );
@@ -185,7 +188,7 @@ public class FileTree
             }
             default:
             {
-                lockFunction = (node)->function.apply( node );
+                lockFunction = ( node ) -> function.apply( node );
             }
         }
 
@@ -195,7 +198,7 @@ public class FileTree
             {
                 if ( autoCreate )
                 {
-                    boolean result = lockAnd(current, timeoutMs, true, ()->{
+                    boolean result = lockAnd( current, timeoutMs, true, () -> {
                         FileTree child = null;
                         child = current.subTrees.get( part );
                         logger.trace( "{} child of: {} is: {}", part, current, child );
@@ -224,7 +227,8 @@ public class FileTree
         }, lockFunction, defValue );
     }
 
-    private <T> T lockAnd( FileTree current, long timeoutMs, boolean unlock, Supplier<T> resultSupplier, T defaultValue )
+    private <T> T lockAnd( FileTree current, long timeoutMs, boolean unlock, Supplier<T> resultSupplier,
+                           T defaultValue )
     {
         if ( current == null )
         {
@@ -377,7 +381,8 @@ public class FileTree
         return result;
     }
 
-    private synchronized void searchAnd( FileTree start, String label, Predicate<FileTree> filter, Consumer<FileTree> processor )
+    private synchronized void searchAnd( FileTree start, String label, Predicate<FileTree> filter,
+                                         Consumer<FileTree> processor )
     {
         if ( subTrees == null || subTrees.isEmpty() )
         {
@@ -387,7 +392,7 @@ public class FileTree
         Logger logger = LoggerFactory.getLogger( getClass() );
 
         // TODO: doesn't work on Windows...
-        List<FileTree> toExamine = Collections.synchronizedList(new ArrayList<>());
+        List<FileTree> toExamine = Collections.synchronizedList( new ArrayList<>() );
         toExamine.add( start );
 
         do
