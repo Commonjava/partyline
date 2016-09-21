@@ -20,6 +20,7 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.junit.rules.TestName;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,6 +42,9 @@ public class FileTreeTest
     @Rule
     public TemporaryFolder temp = new TemporaryFolder();
 
+    @Rule
+    public TestName name = new TestName();
+
     @Test
     public void addChildAndRetrieve()
             throws IOException
@@ -49,12 +53,12 @@ public class FileTreeTest
         File child = createStructure( "child.txt", true );
         setFile( root, child );
 
-        assertThat( root.withNode( child.getParentFile(), false, -1, always, ( node)->true, false ), equalTo( true ) );
+        assertThat( root.withNode( child.getParentFile(), name.getMethodName(), false, -1, always, ( node)->true, false ), equalTo( true ) );
     }
 
     private JoinableFile setFile( FileTree root, File f )
     {
-        return root.withNode( f, true, -1, always, ( node ) -> {
+        return root.withNode( f, name.getMethodName() + "->setFile", true, -1, always, ( node ) -> {
             try
             {
                 return node.setFile( f, null, false );
