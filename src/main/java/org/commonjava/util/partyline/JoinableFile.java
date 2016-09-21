@@ -35,11 +35,11 @@ import java.nio.channels.FileLock;
  * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
  * and retrieve {@link InputStream} instances that can read the content as it becomes available. The {@link InputStream}s that are generated are tuned
  * to wait for content until the associated {@link JoinableFile} notifies them that it is closed.
- * 
+ *
  * @author jdcasey
  */
 public class JoinableFile
-    implements AutoCloseable, Closeable
+        implements AutoCloseable, Closeable
 {
     private static final int CHUNK_SIZE = 1024 * 1024; // 1 mb
 
@@ -70,12 +70,12 @@ public class JoinableFile
      * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
      * instances.
      * <br/>
-     * 
+     *
      * Initialize the {@link JoinableOutputStream} and {@link ByteBuffer} that will buffer content before sending it on
      * to the channel (in the {@link JoinableOutputStream#flush()} method).
      */
     public JoinableFile( final File target, final LockOwner owner, boolean doOutput )
-        throws IOException
+            throws IOException
     {
         this( target, owner, null, doOutput );
     }
@@ -92,14 +92,13 @@ public class JoinableFile
      * the last joined input stream (or this stream, if there are none) closes.
      */
     public JoinableFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput )
-        throws IOException
+            throws IOException
     {
         this.owner = owner;
         this.path = target.getPath();
         this.callbacks = callbacks;
 
-        target.getParentFile()
-              .mkdirs();
+        target.getParentFile().mkdirs();
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         if ( target.isDirectory() )
@@ -156,18 +155,19 @@ public class JoinableFile
      * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
      */
     public synchronized InputStream joinStream()
-        throws IOException
+            throws IOException
     {
         if ( !joinable )
         {
             // if the channel is null, this is a directory lock.
             throw new IOException( "JoinableFile is not accepting join() operations. (" +
-                                   (channel == null ? "It's a locked directory" : "It's in the process of closing.") + ")" );
+                                           ( channel == null ?
+                                                   "It's a locked directory" :
+                                                   "It's in the process of closing." ) + ")" );
         }
 
         Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.debug( "JOIN: {}", Thread.currentThread()
-                                             .getName() );
+        logger.debug( "JOIN: {}", Thread.currentThread().getName() );
         jointCount++;
         return new JoinInputStream( jointCount );
     }
@@ -197,7 +197,7 @@ public class JoinableFile
      */
     @Override
     public synchronized void close()
-        throws IOException
+            throws IOException
     {
         closed = true;
 
@@ -216,7 +216,7 @@ public class JoinableFile
      * After all associated {@link JoinInputStream}s are done, close down this stream's backing storage.
      */
     private synchronized void reallyClose()
-        throws IOException
+            throws IOException
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "Really closing JoinableFile: {}", path );
@@ -253,12 +253,13 @@ public class JoinableFile
             }
         }
 
-        logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path, Thread.currentThread().getName() );
+        logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
+                      Thread.currentThread().getName() );
 
         // FIXME: This should NEVER be unlocked!!
         //        if ( lock.isLocked() )
         //        {
-//        lock.unlock();
+        //        lock.unlock();
         //        }
 
         if ( callbacks != null )
@@ -270,10 +271,10 @@ public class JoinableFile
 
     /**
      * Callback for use in {@link JoinInputStream} to notify this stream to decrement its count of associated input streams.
-     * @throws IOException 
+     * @throws IOException
      */
     private synchronized void jointClosed()
-        throws IOException
+            throws IOException
     {
         jointCount--;
 
@@ -313,7 +314,7 @@ public class JoinableFile
     }
 
     private final class JoinableOutputStream
-        extends OutputStream
+            extends OutputStream
     {
         private boolean closed;
 
@@ -354,7 +355,8 @@ public class JoinableFile
 
             super.flush();
 
-            synchronized ( JoinableFile.this ) {
+            synchronized ( JoinableFile.this )
+            {
                 flushed += count;
                 JoinableFile.this.notifyAll();
             }
@@ -388,7 +390,7 @@ public class JoinableFile
      * when content is still being written to disk.
      */
     private final class JoinInputStream
-        extends InputStream
+            extends InputStream
     {
         private static final long MAX_BUFFER_SIZE = 5 * 1024 * 1024; // 5Mb.
 
@@ -404,7 +406,7 @@ public class JoinableFile
          * Map the content already written to disk for reading. If the flushed count exceeds MAX_BUFFER_SIZE, use the max instead.
          */
         JoinInputStream( int jointIdx )
-            throws IOException
+                throws IOException
         {
             this.jointIdx = jointIdx;
             buf = channel.map( MapMode.READ_ONLY, 0, flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed );
@@ -414,13 +416,13 @@ public class JoinableFile
          * If this stream is in the process of closing, throw {@link IOException}. While the read-bytes count in this
          * stream equals the flushed-bytes count in the associated output stream, wait for new content. If the output stream closes while we're 
          * waiting, return -1. If the thread is interrupted while we're waiting, return -1.
-         * 
+         *
          * If the current mapped buffer has been completely read, map the next section of content from the file. Then read the next byte from the 
          * buffer, increment the read-bytes count, and return it.
          */
         @Override
         public int read()
-            throws IOException
+                throws IOException
         {
             if ( closed )
             {
@@ -429,8 +431,8 @@ public class JoinableFile
 
             synchronized ( JoinableFile.this )
             {
-//                Logger logger = LoggerFactory.getLogger( getClass() );
-//                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
+                //                Logger logger = LoggerFactory.getLogger( getClass() );
+                //                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
                 while ( read == flushed )
                 {
                     if ( output == null || JoinableFile.this.closed )
@@ -449,28 +451,29 @@ public class JoinableFile
                         return -1;
                     }
 
-//                    logger.trace( "Joint: {} READ2: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
+                    //                    logger.trace( "Joint: {} READ2: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
                 }
             }
 
             if ( buf.position() == buf.limit() )
             {
-//                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
+                //                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
                 // map more content from the file, reading past our read-bytes count up to the number of flushed bytes from the parent stream
-                buf = channel.map( MapMode.READ_ONLY, read, flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read );
+                buf = channel.map( MapMode.READ_ONLY, read,
+                                   flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read );
             }
 
             // be extra careful...if the new buffer is empty, return EOF.
             if ( buf.position() == buf.limit() )
             {
-//                logger.trace( "Joint: {} READ: New buffer is empty! Return -1", jointIdx );
+                //                logger.trace( "Joint: {} READ: New buffer is empty! Return -1", jointIdx );
                 return -1;
             }
 
             final int result = buf.get();
             read++;
 
-//            logger.trace( "Joint: {} Read count: {}, returning: {}", jointIdx, read, Integer.toHexString( result ) );
+            //            logger.trace( "Joint: {} Read count: {}, returning: {}", jointIdx, read, Integer.toHexString( result ) );
             // byte is signed in java. Converting to unsigned:
             return result & 0xff;
         }
@@ -481,7 +484,7 @@ public class JoinableFile
          */
         @Override
         public void close()
-            throws IOException
+                throws IOException
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "Joint: {} close() called.", jointIdx );
