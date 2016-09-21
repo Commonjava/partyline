@@ -49,6 +49,24 @@ public class JoinableFileManager
 
     private static final long DEFAULT_FILETREE_TIMEOUT = 100;
 
+    private static final String WAIT_FOR_WRITE_UNLOCK = "waitForWriteUnlock";
+
+    private static final String WITH_TIMEOUT = " (with timeout)";
+
+    private static final String IS_WRITE_LOCKED = "isWriteLocked";
+
+    private static final String UNLOCK = "unlock";
+
+    private static final String LOCK = "lock";
+
+    private static final String OPEN_INPUT_STREAM = "openInputStream";
+
+    private static final String OPEN_OUTPUT_STREAM = "openOutputStream";
+
+    private static final String GET_ACTIVE_LOCKS = "getActiveLocks";
+
+    private static final String CLEANUP_CURRENT_THREAD = "cleanupCurrentThread";
+
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
     private final FileTree locks = new FileTree();
@@ -65,7 +83,7 @@ public class JoinableFileManager
     public void cleanupCurrentThread()
     {
         final long id = Thread.currentThread().getId();
-        locks.forFilesOwnedBy( id, (jf) ->{
+        locks.forFilesOwnedBy( id, CLEANUP_CURRENT_THREAD, (jf) ->{
             final StringBuilder sb = new StringBuilder();
             LockOwner owner = jf.getLockOwner();
             sb.append( "CLEARING ORPHANED LOCK:\nFile: " )
@@ -121,7 +139,7 @@ public class JoinableFileManager
     {
         final Map<File, CharSequence> active = new HashMap<File, CharSequence>();
 
-        locks.forAll((jf)->{
+        locks.forAll( GET_ACTIVE_LOCKS, (jf)->{
             final StringBuilder owner = new StringBuilder();
 
             final LockOwner ref = jf.getLockOwner();
@@ -186,7 +204,7 @@ public class JoinableFileManager
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
         while( end < 0 || System.currentTimeMillis() < end )
         {
-            result = locks.withNode( file, true, DEFAULT_FILETREE_TIMEOUT, always, ( node)->{
+            result = locks.withNode( file, OPEN_OUTPUT_STREAM + (timeout > 0 ? WITH_TIMEOUT : ""), true, DEFAULT_FILETREE_TIMEOUT, always, ( node)->{
                 JoinableFile joinable = node.getFile();
                 try
                 {
@@ -268,7 +286,7 @@ public class JoinableFileManager
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
         while( end < 1 || System.currentTimeMillis() < end )
         {
-            result = locks.withNode( file, true, DEFAULT_FILETREE_TIMEOUT, if_not_locked, ( node ) -> {
+            result = locks.withNode( file, OPEN_INPUT_STREAM + (timeout > 0 ? WITH_TIMEOUT : ""), true, DEFAULT_FILETREE_TIMEOUT, if_not_locked, ( node ) -> {
                 JoinableFile joinable = node.getFile();
                 try
                 {
@@ -331,7 +349,7 @@ public class JoinableFileManager
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
         while( end < 0 || System.currentTimeMillis() < end )
         {
-            Boolean result = locks.withNode( file, true, DEFAULT_FILETREE_TIMEOUT, always, ( node ) -> true, false );
+            Boolean result = locks.withNode( file, LOCK, true, DEFAULT_FILETREE_TIMEOUT, always, ( node ) -> true, false );
             if ( result )
             {
                 logger.trace( "<<<MANUAL LOCK (success)" );
@@ -401,7 +419,7 @@ public class JoinableFileManager
     {
         logger.trace( ">>>MANUAL UNLOCK: {} by: {}", file, Thread.currentThread().getName() );
 //        logger.trace( ">>>MANUAL UNLOCK: {} at:\n  {}", file, stackTrace() );
-        Boolean result = locks.findNodeAnd( file, ( node)->{
+        Boolean result = locks.findNodeAnd( file, UNLOCK, ( node)->{
             int counter = 0;
             while( node.isLocked() )
             {
@@ -463,7 +481,7 @@ public class JoinableFileManager
      */
     public boolean isWriteLocked( final File file )
     {
-        return locks.findNodeAnd( file, (node)->node != null && node.getFile() != null, false );
+        return locks.findNodeAnd( file, IS_WRITE_LOCKED, (node)->node != null && node.getFile() != null, false );
 
 //        JoinableFile jf = locks.getFile( file );
 //        return jf != null;
@@ -488,7 +506,7 @@ public class JoinableFileManager
         logger.trace( ">>>WAIT (write): {} with timeout: {}", file, timeout );
         try
         {
-            return locks.withNode( file, false, timeout, always, fileTree->true, true );
+            return locks.withNode( file, WAIT_FOR_WRITE_UNLOCK + WITH_TIMEOUT, false, timeout, always, fileTree->true, true );
         }
         finally
         {
@@ -507,7 +525,7 @@ public class JoinableFileManager
         logger.trace( ">>>WAIT (write): {} with timeout: {}", file, DEFAULT_TIMEOUT );
         try
         {
-            return locks.withNode( file, false, DEFAULT_FILETREE_TIMEOUT, always, fileTree->true, true );
+            return locks.withNode( file, WAIT_FOR_WRITE_UNLOCK, false, DEFAULT_FILETREE_TIMEOUT, always, fileTree->{fileTree.unlock(); return true;}, true );
         }
         finally
         {

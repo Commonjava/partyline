@@ -82,9 +82,9 @@ public class FileTree
                 '}';
     }
 
-    public void forAll( Consumer<JoinableFile> fileConsumer )
+    public void forAll( String operationName, Consumer<JoinableFile> fileConsumer )
     {
-        searchAnd( this, "FOR_ALL", ( tree ) -> true, ( tree ) -> {
+        searchAnd( this, operationName, ( tree ) -> true, ( tree ) -> {
             if ( tree.file != null )
             {
                 fileConsumer.accept( tree.file );
@@ -92,9 +92,9 @@ public class FileTree
         } );
     }
 
-    public void forFilesOwnedBy( long ownerId, Consumer<JoinableFile> fileConsumer )
+    public void forFilesOwnedBy( long ownerId, String operationName, Consumer<JoinableFile> fileConsumer )
     {
-        searchAnd( this, "ALL_OWNED_BY", ( tree ) -> ( tree.subTrees != null && !tree.subTrees.isEmpty() ), ( tree ) -> {
+        searchAnd( this, operationName, ( tree ) -> ( tree.subTrees != null && !tree.subTrees.isEmpty() ), ( tree ) -> {
             if ( tree.file != null && tree.file.isOwnedBy( ownerId ) )
             {
                 fileConsumer.accept( tree.file );
@@ -144,9 +144,9 @@ public class FileTree
         }
     }
 
-    public <T> T findNodeAnd( File file, Function<FileTree, T> function, T defValue )
+    public <T> T findNodeAnd( File file, String operationName, Function<FileTree, T> function, T defValue )
     {
-        return traversePathAnd( file.getPath(), "FIND IN TREE", ( ref, part ) -> {
+        return traversePathAnd( file.getPath(), operationName, ( ref, part ) -> {
             FileTree current = ref.get();
             if ( current != null )
             {
@@ -157,7 +157,7 @@ public class FileTree
         }, (node)->function.apply( node ), defValue );
     }
 
-    public <T> T withNode( File file, boolean autoCreate, long timeoutMs, LockingBehavior lockingBehavior, Function<FileTree, T> function, T defValue )
+    public <T> T withNode( File file, String operationName, boolean autoCreate, long timeoutMs, LockingBehavior lockingBehavior, Function<FileTree, T> function, T defValue )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
 
@@ -189,7 +189,7 @@ public class FileTree
             }
         }
 
-        return traversePathAnd( file.getPath(), "MODIFY TREE", ( ref, part ) -> {
+        return traversePathAnd( file.getPath(), operationName, ( ref, part ) -> {
             FileTree current = ref.get();
             if ( current != null )
             {
@@ -250,7 +250,7 @@ public class FileTree
             }
             else
             {
-                logger.trace( "LOCK FAILED: {}", current.name );
+                logger.trace( "LOCK FAILED: {} (owned by: {})", current.name, current.lock.getThreadName() );
             }
 
             if ( locked && resultSupplier != null )
