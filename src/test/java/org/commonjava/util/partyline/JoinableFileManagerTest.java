@@ -46,6 +46,39 @@ public class JoinableFileManagerTest
     private final JoinableFileManager mgr = new JoinableFileManager();
 
     @Test
+    public void lockWriteDoesntPreventOpenInputStream()
+            throws Exception
+    {
+        String src = "This is a test";
+
+        File f = temp.newFile();
+        FileUtils.write( f, src );
+
+        assertThat( "Write lock failed.", mgr.lock( f, -1, true ), equalTo( true ) );
+
+        InputStream stream = mgr.openInputStream( f );
+        assertThat( "InputStream cannot be null", stream, notNullValue() );
+
+        String result = IOUtils.toString( stream );
+        assertThat( result, equalTo( src ) );
+    }
+
+    @Test
+    public void waitForLockThenOpenOutputStream()
+            throws Exception
+    {
+        final File f = temp.newFile();
+        assertThat( mgr.waitForWriteUnlock( f ), equalTo( true ) );
+
+        try(OutputStream stream = mgr.openOutputStream( f ))
+        {
+            //nop
+        }
+
+        assertThat( mgr.isWriteLocked( f ), equalTo( false ) );
+    }
+
+    @Test
     public void openOutputStream_VerifyWriteLocked_NotReadLocked()
         throws Exception
     {
@@ -291,11 +324,6 @@ public class JoinableFileManagerTest
             catch ( final InterruptedException e )
             {
                 Assert.fail( "Interrupted!" );
-            }
-            catch ( IOException e )
-            {
-                e.printStackTrace();
-                Assert.fail( "Failed to acquire lock on: " + file );
             }
 
             logger.trace( "unlocking: {}", file );

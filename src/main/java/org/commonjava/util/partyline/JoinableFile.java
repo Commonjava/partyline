@@ -459,8 +459,17 @@ public class JoinableFile
             {
                 //                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
                 // map more content from the file, reading past our read-bytes count up to the number of flushed bytes from the parent stream
+                long end = flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read;
+                if ( (read + end ) > channel.size() )
+                {
+                    end = channel.size() - read;
+                }
+
+                Logger logger = LoggerFactory.getLogger( getClass() );
+                logger.trace( "Buffering {} - {} (size is: {})\n", read, read+end, channel.size() );
+
                 buf = channel.map( MapMode.READ_ONLY, read,
-                                   flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read );
+                                   end );
             }
 
             // be extra careful...if the new buffer is empty, return EOF.

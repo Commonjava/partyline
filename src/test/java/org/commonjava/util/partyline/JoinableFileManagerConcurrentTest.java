@@ -1,8 +1,11 @@
 package org.commonjava.util.partyline;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
 import org.jboss.byteman.contrib.bmunit.BMScript;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -22,10 +25,12 @@ import java.util.concurrent.Future;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 @RunWith( org.jboss.byteman.contrib.bmunit.BMUnitRunner.class )
 @BMUnitConfig( loadDirectory = "target/test-classes/bmunit", debug = true )
 public class JoinableFileManagerConcurrentTest
+        extends AbstractJointedIOTest
 {
     @Rule
     public TemporaryFolder temp = new TemporaryFolder();
@@ -54,6 +59,57 @@ public class JoinableFileManagerConcurrentTest
         final OutputStream out = new FileOutputStream( file );
         IOUtils.write( content, out );
         out.close();
+    }
+
+    @Test
+    @BMScript( "DeleteWhileInputStreamOpen.btm" )
+    @BMUnitConfig( enforce = true, verbose = true )
+    public void deleteWaitsForOpenInputStreamToClose()
+            throws Exception
+    {
+        String src = "This is a test";
+
+        File f = temp.newFile("test.txt");
+        FileUtils.write( f, src );
+
+        Future<Boolean> streamFuture = testPool.submit( () -> {
+            Thread.currentThread().setName( name.getMethodName() + "::openInputStream" );
+            InputStream stream = null;
+            try
+            {
+                stream = fileManager.openInputStream( f );
+                System.out.println(stream + " doing stuff...");
+                stream.close();
+            }
+            catch ( final IOException e )
+            {
+                e.printStackTrace();
+                Assert.fail( "Failed to open stream: " + e.getMessage() );
+            }
+            finally
+            {
+                latch.countDown();
+            }
+            return true;
+        } );
+
+        Future<Boolean> deleteFuture = testPool.submit( () -> {
+            Thread.currentThread().setName( name.getMethodName() + "::tryDelete" );
+            try
+            {
+                return fileManager.tryDelete( f );
+            }
+            finally
+            {
+                latch.countDown();
+            }
+        } );
+
+        latchWait( latch );
+
+        boolean result = deleteFuture.get();
+        assertThat( "File still exists", f.exists(), equalTo( false ) );
+        assertTrue( "File was not deleted!", result );
     }
 
     @Test

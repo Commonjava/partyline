@@ -34,7 +34,7 @@ import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.commonjava.util.partyline.FileTree.LockingBehavior.always;
-import static org.commonjava.util.partyline.FileTree.LockingBehavior.if_not_locked;
+import static org.commonjava.util.partyline.FileTree.LockingBehavior.if_no_stream;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -66,6 +66,8 @@ public class JoinableFileManager
     private static final String GET_ACTIVE_LOCKS = "getActiveLocks";
 
     private static final String CLEANUP_CURRENT_THREAD = "cleanupCurrentThread";
+
+    private static final String DELETE = "delete";
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
@@ -198,12 +200,14 @@ public class JoinableFileManager
     {
         logger.trace( ">>>OPEN OUTPUT: {} with timeout: {}", file, timeout );
 
-        AtomicReference<IOException> error = new AtomicReference();
+        AtomicReference<IOException> error = new AtomicReference<>();
         OutputStream result = null;
 
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
+        int tries = 0;
         while ( end < 0 || System.currentTimeMillis() < end )
         {
+            logger.trace( "TRY: {} for {}", tries, OPEN_OUTPUT_STREAM );
             result = locks.withNode( file, OPEN_OUTPUT_STREAM + ( timeout > 0 ? WITH_TIMEOUT : "" ), true,
                                      DEFAULT_FILETREE_TIMEOUT, always, ( node ) -> {
                         JoinableFile joinable = node.getFile();
@@ -242,15 +246,17 @@ public class JoinableFileManager
                         return null;
                     }, null );
 
+            if ( error.get() != null )
+            {
+                throw error.get();
+            }
+
             if ( result != null )
             {
                 break;
             }
-        }
 
-        if ( error.get() != null )
-        {
-            throw error.get();
+            tries++;
         }
 
         if ( result == null )
@@ -259,6 +265,77 @@ public class JoinableFileManager
         }
 
         return result;
+    }
+
+    public boolean tryDelete( File file )
+            throws IOException
+    {
+        return tryDelete( file, -1 );
+    }
+
+    public boolean tryDelete( File file, long timeout )
+            throws IOException
+    {
+        logger.trace( ">>>DELETE: {}", file, timeout );
+
+        AtomicReference<IOException> error = new AtomicReference<>();
+        File result = null;
+
+        long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
+        int tries = 0;
+        while ( end < 0 || System.currentTimeMillis() < end )
+        {
+            logger.trace( "TRY: {} for {}", tries, DELETE );
+            result = locks.withNode( file, DELETE + ( timeout > 0 ? WITH_TIMEOUT : "" ), true,
+                                     DEFAULT_FILETREE_TIMEOUT, always, ( node ) -> {
+                        try
+                        {
+                            if ( node.getFile() != null )
+                            {
+                                throw new IOException( "Can't delete; still open: " + file );
+                            }
+                            else
+                            {
+                                logger.trace( "In delete, does file exist? {}", file.exists() );
+                                if ( file.exists() )
+                                {
+                                    boolean deleted = file.delete();
+                                    logger.trace( "in delete, delete succeeded? {}", deleted );
+                                }
+
+                                logger.trace("in delete, unlocking...");
+                                node.unlock();
+
+                                logger.trace( "Returning: {}", file );
+                                return file;
+                            }
+                        }
+                        catch ( IOException e )
+                        {
+                            logger.trace( "In delete, got error: {}", e.getMessage() );
+                            error.set( e );
+                        }
+
+                        logger.trace( "In delete, returning: null" );
+                        return null;
+                    }, null );
+
+            if ( error.get() != null )
+            {
+                throw error.get();
+            }
+
+            logger.trace( "TRY: {} result is: {} for DELETE", tries, result );
+            if ( result != null )
+            {
+                break;
+            }
+
+            tries++;
+        }
+
+        logger.trace( "<<<DELETE (Result: {})", result != null && result.exists() );
+        return result != null && !result.exists();
     }
 
     /**
@@ -282,14 +359,16 @@ public class JoinableFileManager
     {
         logger.trace( ">>>OPEN INPUT: {} with timeout: {}", file, timeout );
 
-        AtomicReference<IOException> error = new AtomicReference();
+        AtomicReference<IOException> error = new AtomicReference<>();
         InputStream result = null;
 
         long end = timeout > 0 ? System.currentTimeMillis() + timeout : -1;
+        int tries = 0;
         while ( end < 1 || System.currentTimeMillis() < end )
         {
+            logger.trace( "TRY {} for: {}", tries, OPEN_INPUT_STREAM );
             result = locks.withNode( file, OPEN_INPUT_STREAM + ( timeout > 0 ? WITH_TIMEOUT : "" ), true,
-                                     DEFAULT_FILETREE_TIMEOUT, if_not_locked, ( node ) -> {
+                                     DEFAULT_FILETREE_TIMEOUT, if_no_stream, ( node ) -> {
                         JoinableFile joinable = node.getFile();
                         try
                         {
@@ -326,15 +405,17 @@ public class JoinableFileManager
                         return null;
                     }, null );
 
+            if ( error.get() != null )
+            {
+                throw error.get();
+            }
+
             if ( result != null )
             {
                 break;
             }
-        }
 
-        if ( error.get() != null )
-        {
-            throw error.get();
+            tries++;
         }
 
         return result;
@@ -344,7 +425,6 @@ public class JoinableFileManager
      * Manually lock the specified file to prevent opening any streams via this manager (until manually unlocked).
      */
     public boolean lock( final File file, long timeout, boolean writeLock )
-            throws IOException
     {
         logger.trace( ">>>MANUAL LOCK: {}", file );
         //        logger.trace( ">>>MANUAL LOCK: {} at:\n  {}", file, stackTrace() );
@@ -507,16 +587,19 @@ public class JoinableFileManager
      */
     public boolean waitForWriteUnlock( final File file, final long timeout )
     {
-        logger.trace( ">>>WAIT (write): {} with timeout: {}", file, timeout );
-        try
-        {
-            return locks.withNode( file, WAIT_FOR_WRITE_UNLOCK + WITH_TIMEOUT, false, timeout, always, fileTree -> true,
-                                   true );
-        }
-        finally
-        {
-            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, timeout );
-        }
+//        logger.trace( ">>>WAIT (write): {} with timeout: {}", file, timeout );
+//        try
+//        {
+//            return locks.withNode( file, WAIT_FOR_WRITE_UNLOCK + WITH_TIMEOUT, false, timeout, always, fileTree -> true,
+//                                   true );
+//        }
+//        finally
+//        {
+//            logger.trace( "<<<WAIT (write): {}, timeout: {}", file, timeout );
+//        }
+
+        // whatever the next call is, THAT should handle locking...
+        return true;
     }
 
     /**
