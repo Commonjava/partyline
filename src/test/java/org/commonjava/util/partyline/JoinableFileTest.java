@@ -21,15 +21,17 @@ import static org.hamcrest.CoreMatchers.nullValue;
 import static org.junit.Assert.assertThat;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.locks.ReentrantLock;
 
+import ch.qos.logback.core.util.FileSize;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
@@ -45,12 +47,66 @@ public class JoinableFileTest
 {
 
     @Test
+    public void readExistingFile()
+            throws Exception
+    {
+        File f = temp.newFile( "read-target.txt" );
+        String src = "This is a test";
+        FileUtils.write( f, src );
+
+        final JoinableFile stream = new JoinableFile( f, new LockOwner(), false );
+
+        System.out.println( "File length: " + f.length() );
+
+        String result = FileUtils.readFileToString( f );
+        assertThat( result, equalTo( src ) );
+    }
+
+    @Test
+    public void readExisting1MbFile()
+            throws Exception
+    {
+        assertReadOfExistingFileOfSize("1mb");
+    }
+
+    @Test
+    public void readExisting11MbFile()
+            throws Exception
+    {
+        assertReadOfExistingFileOfSize("11mb");
+    }
+
+    private void assertReadOfExistingFileOfSize( String s )
+            throws IOException
+    {
+        File f = temp.newFile( "read-target.txt" );
+        int sz = (int) FileSize.valueOf( "11mb" ).getSize();
+        byte[] src = new byte[sz];
+
+        Random rand = new Random();
+        rand.nextBytes( src );
+
+        try (OutputStream out = new FileOutputStream( f ))
+        {
+            IOUtils.write( src, out );
+        }
+
+        final JoinableFile jf = new JoinableFile( f, new LockOwner().lock( name.getMethodName() ), false );
+
+        try(InputStream stream = jf.joinStream())
+        {
+            byte[] result = IOUtils.toByteArray( stream );
+            assertThat( result, equalTo( src ) );
+        }
+    }
+
+    @Test
     public void lockDirectory()
             throws IOException
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner().lock(name.getMethodName()), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -63,7 +119,7 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner().lock(name.getMethodName()), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -79,7 +135,7 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner().lock(name.getMethodName()), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
         assertThat( jf.isJoinable(), equalTo( false ) );
@@ -93,7 +149,7 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, new LockOwner(), false );
+        JoinableFile jf = new JoinableFile( dir, new LockOwner().lock(name.getMethodName()), false );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -125,14 +181,14 @@ public class JoinableFileTest
             throws Exception
     {
         File f = temp.newFile();
-        JoinableFile jf = new JoinableFile( f, new LockOwner(), true );
+        JoinableFile jf = new JoinableFile( f, new LockOwner().lock(name.getMethodName()), true );
         OutputStream stream = jf.getOutputStream();
 
         String longer = "This is a really really really long string";
         stream.write( longer.getBytes() );
         stream.close();
 
-        jf = new JoinableFile( f,new LockOwner(), true );
+        jf = new JoinableFile( f, new LockOwner().lock(name.getMethodName()), true );
         stream = jf.getOutputStream();
 
         String shorter = "This is a short string";
@@ -220,7 +276,7 @@ public class JoinableFileTest
         Logger logger = LoggerFactory.getLogger( getClass() );
         try
         {
-            jf = new JoinableFile( f, new LockOwner(), false );
+            jf = new JoinableFile( f, new LockOwner().lock(name.getMethodName()), false );
             s1 = jf.joinStream();
             s2 = jf.joinStream();
 
@@ -299,7 +355,7 @@ public class JoinableFileTest
     public void outputStreamWaitsForSingleJoinedInputStreamToClose()
         throws Exception
     {
-        final JoinableFile jf = new JoinableFile( temp.newFile(), new LockOwner(), true );
+        final JoinableFile jf = new JoinableFile( temp.newFile(), new LockOwner().lock(name.getMethodName()), true );
 
         final String out = "output";
         final String in = "input";
@@ -319,7 +375,7 @@ public class JoinableFileTest
     public void outputStreamWaitsForTwoJoinedInputStreamsToClose()
         throws Exception
     {
-        final JoinableFile jf = new JoinableFile( temp.newFile(), new LockOwner(), true );
+        final JoinableFile jf = new JoinableFile( temp.newFile(), new LockOwner().lock(name.getMethodName()), true );
 
         final String out = "output";
         final String in = "input";

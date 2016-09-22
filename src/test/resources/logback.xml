@@ -10,7 +10,7 @@
 
   <logger name="org.commonjava.util.partyline" level="TRACE" />
 
-  <root level="DEBUG">
+  <root level="TRACE">
     <appender-ref ref="STDOUT" />
   </root>
 

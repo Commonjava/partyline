@@ -143,8 +143,7 @@ public abstract class AbstractJointedIOTest
     protected JoinableFile startTimedWrite( final File file, final long delay, final CountDownLatch latch )
         throws Exception
     {
-        ReentrantLock lock = new ReentrantLock();
-        final JoinableFile jf = new JoinableFile( file, new LockOwner(), true );
+        final JoinableFile jf = new JoinableFile( file, new LockOwner().lock( name.getMethodName() ), true );
 
         newThread( "writer" + writers++, new TimedFileWriter( jf, delay, latch ) ).start();
 

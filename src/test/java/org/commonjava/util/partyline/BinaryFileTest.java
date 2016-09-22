@@ -17,15 +17,13 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
-import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.junit.rules.TestName;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -44,6 +42,9 @@ public class BinaryFileTest {
 
     @Rule
     public TemporaryFolder temp = new TemporaryFolder();
+
+    @Rule
+    public TestName name = new TestName();
 
     private void writeBinaryFile( OutputStream jos, ByteArrayOutputStream written ) throws IOException
     {
@@ -68,7 +69,7 @@ public class BinaryFileTest {
 
         File binaryFile = temp.newFile( "binary-file.bin" );
         ReentrantLock lock = new ReentrantLock();
-        JoinableFile jf = new JoinableFile( binaryFile, new LockOwner(), true );
+        JoinableFile jf = new JoinableFile( binaryFile, new LockOwner().lock( name.getMethodName() ), true );
         OutputStream jos = jf.getOutputStream();
         InputStream actual = jf.joinStream();
 
