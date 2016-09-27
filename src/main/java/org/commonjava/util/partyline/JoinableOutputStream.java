@@ -320,7 +320,15 @@ public class JoinableOutputStream
             if ( buf.position() == buf.limit() )
             {
                 // map more content from the file, reading past our read-bytes count up to the number of flushed bytes from the parent stream
-                buf = channel.map( MapMode.READ_ONLY, read, flushed - read );
+                long end = flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read;
+                if ( (read + end ) > channel.size() )
+                {
+                    end = channel.size() - read;
+                }
+
+                Logger logger = LoggerFactory.getLogger( getClass() );
+                logger.trace( "Buffering {} - {} (size is: {})\n", read, read+end, channel.size() );
+                buf = channel.map( MapMode.READ_ONLY, read, end );
             }
 
             // be extra careful...if the new buffer is empty, return EOF.
