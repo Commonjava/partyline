@@ -169,7 +169,7 @@ public class FileTree
         {
             case always:
             {
-                lockFunction = ( node ) -> lockAnd( node, operationName, timeoutMs, false, () -> function.apply( node ), defValue );
+                lockFunction = ( node ) -> lockAnd( node, operationName, timeoutMs, false, () -> function.apply( node ), defValue, true );
                 break;
             }
             case if_no_stream:
@@ -178,7 +178,7 @@ public class FileTree
                     // if there is no file associated with the node, lock it to prevent deletion.
                     if ( node.getFile() == null )
                     {
-                        return lockAnd( node, operationName, timeoutMs, false, () -> function.apply( node ), defValue );
+                        return lockAnd( node, operationName, timeoutMs, false, () -> function.apply( node ), defValue, true );
                     }
                     else
                     {
@@ -211,7 +211,7 @@ public class FileTree
                         }
                         ref.set( child );
                         return true;
-                    }, false );
+                    }, false, false );
 
                     if ( !result )
                     {
@@ -229,7 +229,7 @@ public class FileTree
     }
 
     private <T> T lockAnd( FileTree current, String label, long timeoutMs, boolean unlock, Supplier<T> resultSupplier,
-                           T defaultValue )
+                           T defaultValue, boolean isLeaf )
     {
         if ( current == null )
         {
@@ -242,11 +242,11 @@ public class FileTree
 //            logger.trace( "LOCK {}", current.name );
             if ( timeoutMs > 1000 )
             {
-                locked = current.tryLock( label, timeoutMs, TimeUnit.MILLISECONDS );
+                locked = current.tryLock( label, timeoutMs, TimeUnit.MILLISECONDS, isLeaf );
             }
             else
             {
-                locked = current.tryLock( label, 1000, TimeUnit.MILLISECONDS );
+                locked = current.tryLock( label, 1000, TimeUnit.MILLISECONDS, isLeaf );
             }
 
             if ( !locked )
@@ -257,7 +257,7 @@ public class FileTree
             if ( locked && resultSupplier != null )
             {
                 T val = resultSupplier.get();
-                logger.trace( "Returning resultSupplier value: {}", val );
+//                logger.trace( "Returning resultSupplier value: {}", val );
                 return val;
             }
         }
@@ -270,12 +270,12 @@ public class FileTree
             if ( unlock && locked )
             {
 //                logger.trace( "UNLOCK: {}", current.name );
-                current.unlock();
+                current.unlock( isLeaf );
 //                logger.trace( "unlocked" );
             }
         }
 
-        logger.trace( "Returning default value: {}", defaultValue );
+//        logger.trace( "Returning default value: {}", defaultValue );
         return defaultValue;
     }
 
@@ -286,28 +286,33 @@ public class FileTree
 
     public synchronized void unlock()
     {
+        unlock( true );
+    }
+
+    public synchronized void unlock( boolean trace )
+    {
         Logger logger = LoggerFactory.getLogger( getClass() );
         if ( file != null )
         {
-            logger.trace( "{}: UNLOCK: closing file: {}", name, file );
+            if ( trace ) logger.trace( "{}: UNLOCK: closing file: {}", name, file );
             IOUtils.closeQuietly( file );
             file = null;
         }
 
         if ( lock.isLocked() )
         {
-            int decrementedLockCount = lock.decrement();
-            logger.trace( "{}: After decrementing lock-count: {}", name, lock.getLockInfo() );
+            int decrementedLockCount = lock.decrement( trace );
+            if ( trace ) logger.trace( "{}: After decrementing lock-count: {}", name, lock.getLockInfo() );
             if ( decrementedLockCount < 1 )
             {
-                logger.trace( "{}: Clearing lock for: {}", name, lock.getThreadName() );
+                if ( trace ) logger.trace( "{}: Clearing lock for: {}", name, lock.getThreadName() );
                 lock.unlock();
                 notifyAll();
             }
         }
     }
 
-    private boolean tryLock( String label, long timeoutMs, TimeUnit milliseconds )
+    private boolean tryLock( String label, long timeoutMs, TimeUnit milliseconds, boolean trace )
             throws InterruptedException
     {
         long end = timeoutMs > 0 ? System.currentTimeMillis() + timeoutMs : -1;
@@ -321,9 +326,9 @@ public class FileTree
                 wait( 100 );
                 if ( !lock.isLocked() )
                 {
-                    logger.trace( "{}: Not locked", name );
+                    if ( trace ) logger.trace( "{}: Not locked", name );
                     lock.lock( label );
-                    logger.trace( "{}: Locked: {}", name, lock.getLockInfo() );
+                    if ( trace ) logger.trace( "{}: Locked: {}", name, lock.getLockInfo() );
                     notifyAll();
                     return true;
                 }
@@ -331,12 +336,12 @@ public class FileTree
                 {
                     if ( lock.isOwnedByCurrentThread() )
                     {
-                        logger.trace( "{}: Already locked by this thread", name );
-                        lock.increment( label );
-                        logger.trace( "{}: Incremented lock count: {}", name, lock.getLockInfo() );
+                        if ( trace ) logger.trace( "{}: Already locked by this thread", name );
+                        lock.increment( label, trace );
+                        if ( trace ) logger.trace( "{}: Incremented lock count: {}", name, lock.getLockInfo() );
                         return true;
                     }
-                    else
+                    else if ( trace )
                     {
                         logger.trace( "{}: Can't lock; already locked by another thread:\n{}",
                                       name, lock.getLockInfo() );
@@ -345,7 +350,7 @@ public class FileTree
             }
         }
 
-        logger.trace( "{}: {}: Lock failed", System.currentTimeMillis(), name );
+        if ( trace ) logger.trace( "{}: {}: Lock failed", System.currentTimeMillis(), name );
         return false;
     }
 

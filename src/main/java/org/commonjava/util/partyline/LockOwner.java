@@ -126,15 +126,25 @@ public class LockOwner
 
     public synchronized int increment( String label )
     {
+        return increment( label, true );
+    }
+
+    public synchronized int increment( String label, boolean trace )
+    {
         lockRefs.push( label );
         Logger logger = LoggerFactory.getLogger( getClass() );
 
         int lockCount = lockRefs.size();
-        logger.trace( "Incremented lock count to: {} with ref: {}", lockCount, label );
+        if ( trace ) logger.trace( "Incremented lock count to: {} with ref: {}", lockCount, label );
         return lockCount;
     }
 
     public synchronized int decrement()
+    {
+        return decrement( true );
+    }
+
+    public synchronized int decrement( boolean trace )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
         String ref = null;
@@ -143,7 +153,7 @@ public class LockOwner
             ref = lockRefs.pop();
         }
         int lockCount = lockRefs.size();
-        logger.trace( "Decrementing lock count, popping ref: {}. New count is: {}", ref, lockCount );
+        if ( trace ) logger.trace( "Decrementing lock count, popping ref: {}. New count is: {}", ref, lockCount );
         return lockCount;
     }
 }
