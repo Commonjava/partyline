@@ -3,9 +3,16 @@
 
 ### Why Wait?
 
-Partyline is a library for providing read access to files that are still being written. This is particularly useful for server applications (like [AProx](/aprox/)) which cache remote files and provide them to users on demand. Without joinable I/O, such users must wait for the file to cache fully before it it served to them. With joinable I/O, the user starts receiving data as soon as the server application starts writing it to the cache file. Even users that request the file after the original cache-triggering event, but before the file caches completely, can join the I/O stream and \"catch up\" to the current download progress.
+Partyline is a library for providing read access to files that are still being written. This is particularly useful for server applications (like [Indy](/indy/)) which cache remote files and provide them to users on demand. Without joinable I/O, users must wait for the file to cache fully before it it served to them. With joinable I/O, the user starts receiving data as soon as the server application starts writing it to the cache file. Even users that request the file after the original cache-triggering event, but before the file caches completely, can join the I/O stream and \"catch up\" to the current download progress.
 
 While this logic may not seem so mysterious to some developers, it's useful to have a tested library for this functionality to make it reusable with minimal fuss or risk of threading error.
+
+### In This Guide
+
+If you're new here, please read on! Otherwise, here are some links to specific non-introductory information provided in this guide:
+
+* [Locking Specification](locks.html) 
+
 
 ### Like `OutputStream`, but Fancier!
 
