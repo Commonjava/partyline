@@ -16,7 +16,6 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
-import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -26,12 +25,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedList;
-
-import static org.commonjava.util.partyline.FileTree.LockingBehavior.always;
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.notNullValue;
-import static org.hamcrest.CoreMatchers.sameInstance;
-import static org.junit.Assert.assertThat;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by jdcasey on 8/18/16.
@@ -46,39 +40,12 @@ public class FileTreeTest
     public TestName name = new TestName();
 
     @Test
-    public void addChildAndRetrieve()
-            throws IOException
-    {
-        FileTree root = new FileTree();
-        File child = createStructure( "child.txt", true );
-        setFile( root, child );
-
-        assertThat( root.withNode( child.getParentFile(), name.getMethodName(), false, -1, always, ( node)->true, false ), equalTo( true ) );
-    }
-
-    private JoinableFile setFile( FileTree root, File f )
-    {
-        return root.withNode( f, name.getMethodName() + "->setFile", true, -1, always, ( node ) -> {
-            try
-            {
-                return node.setFile( f, null, false );
-            }
-            catch ( IOException e )
-            {
-                e.printStackTrace();
-                Assert.fail( "Failed to create new JoinableFile");
-            }
-            return null;
-        }, null );
-    }
-
-    @Test
     public void addChildAndRenderTree()
-            throws IOException
+            throws IOException, InterruptedException
     {
         FileTree root = new FileTree();
         File child = createStructure( "child.txt", true );
-        JoinableFile jf = setFile( root, child );
+        JoinableFile jf = root.setOrJoinFile( child, null, false, -1, TimeUnit.MILLISECONDS );
 //        JoinableFile jf = new JoinableFile( child, false );
 //        root.add( jf );
 

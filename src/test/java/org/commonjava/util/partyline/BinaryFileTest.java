@@ -69,7 +69,7 @@ public class BinaryFileTest {
 
         File binaryFile = temp.newFile( "binary-file.bin" );
         ReentrantLock lock = new ReentrantLock();
-        JoinableFile jf = new JoinableFile( binaryFile, new LockOwner().lock( name.getMethodName() ), true );
+        JoinableFile jf = new JoinableFile( binaryFile, new LockOwner( name.getMethodName(), LockLevel.write ), true );
         OutputStream jos = jf.getOutputStream();
         InputStream actual = jf.joinStream();
 
