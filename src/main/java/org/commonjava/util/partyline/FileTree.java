@@ -49,7 +49,7 @@ import static org.commonjava.util.partyline.LockLevel.read;
 public class FileTree
 {
 
-    private static final long DEFAULT_LOCK_TIMEOUT = 2000;
+    private static final long DEFAULT_LOCK_TIMEOUT = 5000;
 
     private static final long WAIT_TIMEOUT = 100;
 
@@ -212,13 +212,13 @@ public class FileTree
     public synchronized boolean tryLock( File f, String label, LockLevel lockLevel, long timeout, TimeUnit unit )
             throws InterruptedException
     {
-        long end = System.currentTimeMillis() + timeout > 0 ? TimeUnit.MILLISECONDS.convert(timeout, unit) : DEFAULT_LOCK_TIMEOUT;
+        long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert(timeout, unit);
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "{}: Trying to lock until: {}", System.currentTimeMillis(), end );
 
         String name = f.getAbsolutePath();
-        while ( System.currentTimeMillis() < end )
+        while ( end < 1 || System.currentTimeMillis() < end )
         {
             FileEntry entry = getLockingEntry( f );
             if ( entry == null )
@@ -251,10 +251,10 @@ public class FileTree
     public synchronized JoinableFile setOrJoinFile( File realFile, StreamCallbacks callbacks, boolean doOutput, long timeout, TimeUnit unit )
             throws IOException, InterruptedException
     {
-        long end = System.currentTimeMillis() + timeout > 0 ? TimeUnit.MILLISECONDS.convert(timeout, unit) : DEFAULT_LOCK_TIMEOUT;
+        long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert(timeout, unit);
 
         Logger logger = LoggerFactory.getLogger( getClass() );
-        while ( System.currentTimeMillis() < end )
+        while ( end < 1 || System.currentTimeMillis() < end )
         {
             if ( tryLock( realFile, "Open File for " + ( doOutput ? "output" : "input" ),
                           doOutput ? LockLevel.write : read, WAIT_TIMEOUT, unit ) )
