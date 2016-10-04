@@ -319,7 +319,10 @@ public class FileTree
                 notifyAll();
 //            }
 
-            FileUtils.forceDelete( file );
+            if ( file.exists() )
+            {
+                FileUtils.forceDelete( file );
+            }
             return true;
         }
 
