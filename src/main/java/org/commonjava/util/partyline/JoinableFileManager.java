@@ -91,7 +91,9 @@ public class JoinableFileManager
               .append( " (ID: " )
               .append( owner.getThreadId() )
               .append( ")" )
-              .append( "\nLock type: " )
+              .append( "\nLock Info:\n  ")
+              .append( owner.getLockInfo() )
+              .append( "\n\nLock type: " )
               .append( jf.isWriteLocked() ? "WRITE" : "READ" )
               .append( "\nLocked at:\n" );
 
@@ -104,7 +106,9 @@ public class JoinableFileManager
 
             logger.warn( sb.toString() );
 
-            IOUtils.closeQuietly( jf );
+            jf.forceClose();
+
+            logger.trace( "After cleanup, lock info is: {}", jf.getLockOwner().getLockInfo() );
         } );
     }
 

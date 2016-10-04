@@ -15,6 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
+import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,9 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
@@ -49,9 +53,9 @@ public class JoinableFile
 
     private final JoinableOutputStream output;
 
-    private long flushed = 0;
+    private final Map<Integer, JoinInputStream> inputs = new HashMap<>();
 
-    private int jointCount = 0;
+    private long flushed = 0;
 
     private final String path;
 
@@ -101,32 +105,39 @@ public class JoinableFile
         target.getParentFile().mkdirs();
 
         Logger logger = LoggerFactory.getLogger( getClass() );
-        if ( target.isDirectory() )
+        try
         {
-            logger.trace( "INIT: locking directory WITHOUT lock in underlying filesystem!" );
-            output = null;
-            randomAccessFile = null;
-            channel = null;
-            fileLock = null;
-            joinable = false;
+            if ( target.isDirectory() )
+            {
+                logger.trace( "INIT: locking directory WITHOUT lock in underlying filesystem!" );
+                output = null;
+                randomAccessFile = null;
+                channel = null;
+                fileLock = null;
+                joinable = false;
+            }
+            else if ( doOutput )
+            {
+                logger.trace( "INIT: read-write JoinableFile: {}", target );
+                output = new JoinableOutputStream();
+                randomAccessFile = new RandomAccessFile( target, "rw" );
+                channel = randomAccessFile.getChannel();
+                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
+            }
+            else
+            {
+                logger.trace( "INIT: read-only JoinableFile: {}", target );
+                output = null;
+                logger.trace( "INIT: set flushed length to: {}", target.length() );
+                flushed = target.length();
+                randomAccessFile = new RandomAccessFile( target, "r" );
+                channel = randomAccessFile.getChannel();
+                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
+            }
         }
-        else if ( doOutput )
+        catch ( OverlappingFileLockException e )
         {
-            logger.trace( "INIT: read-write JoinableFile: {}", target );
-            output = new JoinableOutputStream();
-            randomAccessFile = new RandomAccessFile( target, "rw" );
-            channel = randomAccessFile.getChannel();
-            fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
-        }
-        else
-        {
-            logger.trace( "INIT: read-only JoinableFile: {}", target );
-            output = null;
-            logger.trace( "INIT: set flushed length to: {}", target.length() );
-            flushed = target.length();
-            randomAccessFile = new RandomAccessFile( target, "r" );
-            channel = randomAccessFile.getChannel();
-            fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
+            throw new IOException( "Cannot lock file: " + target + ". Reason: " + e.getMessage() + "\nLocked by: " + owner.getLockInfo(), e );
         }
     }
 
@@ -168,8 +179,10 @@ public class JoinableFile
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.debug( "JOIN: {}", Thread.currentThread().getName() );
-        jointCount++;
-        return new JoinInputStream( jointCount );
+        JoinInputStream result = new JoinInputStream( inputs.size() );
+        inputs.put( result.hashCode(), result );
+
+        return result;
     }
 
     private void checkWritable()
@@ -190,6 +203,16 @@ public class JoinableFile
         return channel == null || output != null;
     }
 
+    public synchronized void forceClose()
+    {
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        logger.trace( "forceClose() called, closing all open inputs..." );
+        new HashMap<>(inputs).forEach( ( k, stream ) -> IOUtils.closeQuietly( stream ) );
+
+        logger.trace( "Closing the rest" );
+        IOUtils.closeQuietly( this );
+    }
+
     /**
      * Mark this stream as closed. Don't close the underlying channel if
      * there are still open input streams...allow their close methods to trigger that if the ref count drops 
@@ -199,15 +222,21 @@ public class JoinableFile
     public synchronized void close()
             throws IOException
     {
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        logger.trace( "close() called, marking as closed..." );
+
         closed = true;
 
         if ( output != null && !output.closed )
         {
+            logger.trace( "Closing output" );
             output.close();
         }
 
-        if ( channel == null || jointCount <= 0 )
+        logger.trace( "joint count is: {}.", inputs.size() );
+        if ( channel == null || inputs.isEmpty() )
         {
+            logger.trace( "Joints closed, really closing..." );
             reallyClose();
         }
     }
@@ -245,12 +274,21 @@ public class JoinableFile
                     fileLock.release();
                     channel.close();
                 }
+                else
+                {
+                    logger.trace( "Channel was not open..." );
+                }
+
                 randomAccessFile.close();
             }
             catch ( ClosedChannelException e )
             {
                 logger.debug( "Lock release failed on closed channel.", e );
             }
+        }
+        else
+        {
+            logger.trace( "Channel already closed..." );
         }
 
         logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
@@ -273,14 +311,14 @@ public class JoinableFile
      * Callback for use in {@link JoinInputStream} to notify this stream to decrement its count of associated input streams.
      * @throws IOException
      */
-    private synchronized void jointClosed()
+    private synchronized void jointClosed( JoinInputStream input )
             throws IOException
     {
-        jointCount--;
+        inputs.remove( input.hashCode() );
 
         Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.trace( "jointClosed() called in: {}, current joint count: {}", this, jointCount );
-        if ( jointCount <= 0 )
+        logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
+        if ( inputs.isEmpty() )
         {
             if ( output == null || output.closed )
             {
@@ -300,7 +338,7 @@ public class JoinableFile
 
     public boolean isOpen()
     {
-        return !closed || jointCount > 0;
+        return !closed || !inputs.isEmpty();
     }
 
     public boolean isOwnedByCurrentThread()
@@ -488,7 +526,7 @@ public class JoinableFile
         }
 
         /**
-         * Mark this stream as closed to no further reads can proceed. Then, call {@link JoinableFile#jointClosed()} to notify the parent
+         * Mark this stream as closed to no further reads can proceed. Then, call {@link JoinableFile#jointClosed(JoinInputStream)} to notify the parent
          * output stream to decrement its open-reader count and notify anyone waiting in case a close is in progress.
          */
         @Override
@@ -499,7 +537,7 @@ public class JoinableFile
             logger.trace( "Joint: {} close() called.", jointIdx );
             closed = true;
             super.close();
-            jointClosed();
+            jointClosed( this );
         }
     }
 

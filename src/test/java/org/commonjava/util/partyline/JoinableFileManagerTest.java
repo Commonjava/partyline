@@ -216,6 +216,19 @@ public class JoinableFileManagerTest
     }
 
     @Test
+    public void openInputStream_cleanupCurrentThread_openOutputStream()
+        throws Exception
+    {
+        final File f = temp.newFile("test.txt");
+        FileUtils.write( f, "This is first pass" );
+        mgr.openInputStream( f );
+        mgr.cleanupCurrentThread();
+        OutputStream outputStream = mgr.openOutputStream( f );
+
+        outputStream.close();
+    }
+
+    @Test
     public void lockFile_OpenOutputStreamWaitsForUnlock()
         throws Exception
     {
