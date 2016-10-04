@@ -6,6 +6,7 @@ import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
 import org.jboss.byteman.contrib.bmunit.BMScript;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -62,6 +63,7 @@ public class JoinableFileManagerConcurrentTest
     }
 
     @Test
+    @Ignore
     @BMScript( "DeleteWhileInputStreamOpen.btm" )
     @BMUnitConfig( enforce = true, verbose = true )
     public void deleteWaitsForOpenInputStreamToClose()

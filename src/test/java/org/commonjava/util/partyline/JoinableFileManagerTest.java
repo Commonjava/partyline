@@ -15,18 +15,6 @@
  */
 package org.commonjava.util.partyline;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.notNullValue;
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.junit.Assert.assertThat;
-
-import java.io.Closeable;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Map;
-
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
@@ -36,6 +24,17 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Map;
+
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.notNullValue;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.junit.Assert.assertThat;
 
 public class JoinableFileManagerTest
     extends AbstractJointedIOTest
@@ -54,7 +53,7 @@ public class JoinableFileManagerTest
         File f = temp.newFile();
         FileUtils.write( f, src );
 
-        assertThat( "Write lock failed.", mgr.lock( f, -1, true ), equalTo( true ) );
+        assertThat( "Write lock failed.", mgr.lock( f, -1, LockLevel.write ), equalTo( true ) );
 
         InputStream stream = mgr.openInputStream( f );
         assertThat( "InputStream cannot be null", stream, notNullValue() );
@@ -265,7 +264,7 @@ public class JoinableFileManagerTest
                 //                System.out.println( Thread.currentThread()
                 //                                          .getName() + ": Opened output stream: " + file );
             }
-            catch ( final IOException e )
+            catch ( final Exception e )
             {
                 e.printStackTrace();
                 Assert.fail( "Failed to open stream: " + e.getMessage() );
@@ -312,7 +311,7 @@ public class JoinableFileManagerTest
             try
             {
                 logger.trace( "locking: {}", file );
-                final boolean locked = mgr.lock( file, 100, true );
+                final boolean locked = mgr.lock( file, 100, LockLevel.write );
 
                 logger.trace( "locked? {}", locked );
 

@@ -15,6 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.slf4j.Logger;
@@ -26,7 +27,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -38,6 +40,8 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static org.apache.commons.lang.StringUtils.isEmpty;
+import static org.apache.commons.lang.StringUtils.join;
+import static org.commonjava.util.partyline.LockLevel.read;
 
 /**
  * Created by jdcasey on 8/18/16.
@@ -45,61 +49,39 @@ import static org.apache.commons.lang.StringUtils.isEmpty;
 public class FileTree
 {
 
-    public enum LockingBehavior
+    private ConcurrentHashMap<String, FileEntry> entryMap = new ConcurrentHashMap<String, FileEntry>();
+
+    private static final class FileEntry
     {
-        always,
-        if_no_stream,
-        never;
-    }
+        private final String name;
+        private final LockOwner lock;
+        private JoinableFile file;
 
-    private final String name;
-
-    private final FileTree parent;
-
-    private final LockOwner lock = new LockOwner();
-
-    private volatile JoinableFile file;
-
-    private Map<String, FileTree> subTrees = new ConcurrentHashMap<>();
-
-    public FileTree()
-    {
-        this.parent = null;
-        this.name = "/";
-        this.file = null;
-    }
-
-    private FileTree( FileTree parent, String name )
-    {
-        this.parent = parent;
-        this.name = name;
-        this.file = null;
-    }
-
-    @Override
-    public String toString()
-    {
-        return "FileTree@" + super.hashCode() + "{" +
-                "name='" + name + '\'' +
-                '}';
+        FileEntry( String name, String lockingLabel, LockLevel lockLevel )
+        {
+            this.name = name;
+            this.lock = new LockOwner( lockingLabel, lockLevel );
+        }
     }
 
     public void forAll( String operationName, Consumer<JoinableFile> fileConsumer )
     {
-        searchAnd( this, operationName, ( tree ) -> true, ( tree ) -> {
-            if ( tree.file != null )
+        TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
+        sorted.forEach( ( key, entry ) -> {
+            if ( entry.file != null )
             {
-                fileConsumer.accept( tree.file );
+                fileConsumer.accept( entry.file );
             }
         } );
     }
 
     public void forFilesOwnedBy( long ownerId, String operationName, Consumer<JoinableFile> fileConsumer )
     {
-        searchAnd( this, operationName, ( tree ) -> ( tree.subTrees != null && !tree.subTrees.isEmpty() ), ( tree ) -> {
-            if ( tree.file != null && tree.file.isOwnedBy( ownerId ) )
+        TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
+        sorted.forEach( ( key, entry ) -> {
+            if ( entry.file != null && entry.lock.getThreadId() == ownerId )
             {
-                fileConsumer.accept( tree.file );
+                fileConsumer.accept( entry.file );
             }
         } );
     }
@@ -113,353 +95,214 @@ public class FileTree
 
     private synchronized void renderTreeInternal( StringBuilder sb, int indent )
     {
-        if ( subTrees != null )
-        {
-            if ( indent > 0 )
-            {
-                sb.append( "|- " );
-            }
+        TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
+        sorted.forEach( ( key, entry ) -> {
+            sb.append( "+- " );
+            Stream.of( key.split( "/" ) ).forEach( ( part ) -> sb.append( "  " ) );
 
-            sb.append( name );
-
-            if ( file != null )
+            sb.append( new File( key ).getName() );
+            if ( entry.file != null )
             {
                 sb.append( " (F)" );
             }
-
-            for ( Iterator<String> it = subTrees.keySet().iterator(); it.hasNext(); )
+            else
             {
-                String name = it.next();
-                FileTree tree = subTrees.get( name );
-
-                sb.append( '\n' );
-                for ( int i = 0; i < indent; i++ )
-                {
-                    sb.append( "|  " );
-                }
-                tree.renderTreeInternal( sb, indent + 1 );
+                sb.append( "/" );
             }
-        }
-        else
-        {
-            sb.append( "+ " ).append( name ).append( file == null ? "" : " (F)" );
-        }
+        } );
     }
 
-    public <T> T findNodeAnd( File file, String operationName, Function<FileTree, T> function, T defValue )
-    {
-        return traversePathAnd( file.getPath(), operationName, ( ref, part ) -> {
-            FileTree current = ref.get();
-            if ( current != null )
-            {
-                ref.set( current.subTrees.get( part ) );
-            }
-
-            return ref.get() != null;
-        }, ( node ) -> function.apply( node ), defValue );
-    }
-
-    public <T> T withNode( File file, String operationName, boolean autoCreate, long timeoutMs,
-                           LockingBehavior lockingBehavior, Function<FileTree, T> function, T defValue )
+    private FileEntry getLockingEntry( File file )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
+        FileEntry entry = null;
 
-        Function<FileTree, T> lockFunction;
-        switch ( lockingBehavior )
+        // search self and ancestors...
+        File f = file;
+        do
         {
-            case always:
+            entry = entryMap.get( f.getAbsolutePath() );
+            if ( entry != null )
             {
-                lockFunction = ( node ) -> lockAnd( node, operationName, timeoutMs, false, () -> function.apply( node ), defValue, true );
-                break;
-            }
-            case if_no_stream:
-            {
-                lockFunction = ( node ) -> {
-                    // if there is no file associated with the node, lock it to prevent deletion.
-                    if ( node.getFile() == null )
-                    {
-                        return lockAnd( node, operationName, timeoutMs, false, () -> function.apply( node ), defValue, true );
-                    }
-                    else
-                    {
-                        return function.apply( node );
-                    }
-                };
-                break;
-            }
-            default:
-            {
-                lockFunction = ( node ) -> function.apply( node );
-            }
-        }
-
-        return traversePathAnd( file.getPath(), operationName, ( ref, part ) -> {
-            FileTree current = ref.get();
-            if ( current != null )
-            {
-                if ( autoCreate )
-                {
-                    boolean result = lockAnd( current, operationName, timeoutMs, true, () -> {
-                        FileTree child = null;
-                        child = current.subTrees.get( part );
-//                        logger.trace( "{} child of: {} is: {}", part, current, child );
-                        if ( child == null )
-                        {
-                            child = new FileTree( current, part );
-                            current.subTrees.put( part, child );
-//                            logger.trace( "Created child: {} of: {}", child, current );
-                        }
-                        ref.set( child );
-                        return true;
-                    }, false, false );
-
-                    if ( !result )
-                    {
-                        ref.set( null );
-                    }
-                }
-                else
-                {
-                    ref.set( current.subTrees.get( part ) );
-                }
-            }
-
-            return ref.get() != null;
-        }, lockFunction, defValue );
-    }
-
-    private <T> T lockAnd( FileTree current, String label, long timeoutMs, boolean unlock, Supplier<T> resultSupplier,
-                           T defaultValue, boolean isLeaf )
-    {
-        if ( current == null )
-        {
-            return defaultValue;
-        }
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        boolean locked = false;
-        try
-        {
-//            logger.trace( "LOCK {}", current.name );
-            if ( timeoutMs > 1000 )
-            {
-                locked = current.tryLock( label, timeoutMs, TimeUnit.MILLISECONDS, isLeaf );
+                logger.trace( "Locked by: {}", entry.lock.getLockInfo() );
+                return entry;
             }
             else
             {
-                locked = current.tryLock( label, 1000, TimeUnit.MILLISECONDS, isLeaf );
+                logger.trace( "No lock found for: {}", f );
             }
 
-            if ( !locked )
-            {
-                logger.trace( "LOCK FAILED: {} (owned by: {})", current.name, current.lock.getThreadName() );
-            }
+            f = f.getParentFile();
+        } while( f != null );
 
-            if ( locked && resultSupplier != null )
-            {
-                T val = resultSupplier.get();
-//                logger.trace( "Returning resultSupplier value: {}", val );
-                return val;
-            }
-        }
-        catch ( InterruptedException e )
+        // search for children...
+        String fp = file.getAbsolutePath();
+        Optional<String> result = entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
+        if ( result.isPresent() )
         {
-            logger.warn( "Interrupted while trying to withNode FileTree at: {}. Aborting...", file );
+            logger.trace( "Child: {} is locked; returning child as locking entry", result.get() );
+            return entryMap.get( result.get() );
         }
-        finally
+
+        return null;
+    }
+
+    public LockLevel getLockLevel( File file )
+    {
+        FileEntry entry = getLockingEntry( file );
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        if ( entry == null )
         {
-            if ( unlock && locked )
-            {
-//                logger.trace( "UNLOCK: {}", current.name );
-                current.unlock( isLeaf );
-//                logger.trace( "unlocked" );
-            }
+            return null;
         }
-
-//        logger.trace( "Returning default value: {}", defaultValue );
-        return defaultValue;
+        else if ( !entry.name.equals( file.getAbsolutePath() ) )
+        {
+            return read;
+        }
+        else
+        {
+            return entry.lock.getLockLevel();
+        }
     }
 
-    public boolean isLocked()
-    {
-        return lock.isLocked();
-    }
-
-    public synchronized void unlock()
-    {
-        unlock( true );
-    }
-
-    public synchronized void unlock( boolean trace )
+    public synchronized boolean unlock( File f )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
-        if ( file != null )
+        FileEntry entry = entryMap.get( f.getAbsolutePath() );
+        if ( entry != null )
         {
-            if ( trace ) logger.trace( "{}: UNLOCK: closing file: {}", name, file );
-            IOUtils.closeQuietly( file );
-            file = null;
-        }
-
-        if ( lock.isLocked() )
-        {
-            int decrementedLockCount = lock.decrement( trace );
-            if ( trace ) logger.trace( "{}: After decrementing lock-count: {}", name, lock.getLockInfo() );
-            if ( decrementedLockCount < 1 )
+            if ( entry.lock.unlock() )
             {
-                if ( trace ) logger.trace( "{}: Clearing lock for: {}", name, lock.getThreadName() );
-                lock.unlock();
+                entryMap.remove( entry.name );
                 notifyAll();
+                return true;
+            }
+            else
+            {
+                logger.trace( "Unlock request failed: Remaining locks:\n\n{}", entry.lock.getLockInfo() );
             }
         }
+
+        return false;
     }
 
-    private boolean tryLock( String label, long timeoutMs, TimeUnit milliseconds, boolean trace )
+    public boolean tryLock( File f, String label, LockLevel lockLevel, long timeout, TimeUnit unit )
             throws InterruptedException
     {
-        long end = timeoutMs > 0 ? System.currentTimeMillis() + timeoutMs : -1;
+        long end = timeout > 0 ? System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert(timeout, unit) : -1;
 
         Logger logger = LoggerFactory.getLogger( getClass() );
-//        logger.trace( "{}: Trying to lock until: {}", System.currentTimeMillis(), end );
+        logger.trace( "{}: Trying to lock until: {}", System.currentTimeMillis(), end );
+
+        String name = f.getAbsolutePath();
         while ( end < 0 || System.currentTimeMillis() < end )
         {
             synchronized ( this )
             {
-                wait( 100 );
-                if ( !lock.isLocked() )
+                FileEntry entry = getLockingEntry( f );
+                if ( entry != null && entry.name.equals( f.getAbsolutePath() ) && entry.lock.lock( label, lockLevel ) )
                 {
-                    if ( trace ) logger.trace( "{}: Not locked", name );
-                    lock.lock( label );
-                    if ( trace ) logger.trace( "{}: Locked: {}", name, lock.getLockInfo() );
-                    notifyAll();
+                    logger.trace( "Added lock to existing entry: {}", entry.name );
                     return true;
                 }
-                else
+                else if ( entry == null || entry.lock.getLockLevel() == read )
                 {
-                    if ( lock.isOwnedByCurrentThread() )
-                    {
-                        if ( trace ) logger.trace( "{}: Already locked by this thread", name );
-                        lock.increment( label, trace );
-                        if ( trace ) logger.trace( "{}: Incremented lock count: {}", name, lock.getLockInfo() );
-                        return true;
-                    }
-                    else if ( trace )
-                    {
-                        logger.trace( "{}: Can't lock; already locked by another thread:\n{}",
-                                      name, lock.getLockInfo() );
-                    }
+                    logger.trace( "Lock cleared; locking as: {} from: {}", lockLevel, label );
+                    entryMap.put( name, new FileEntry( name, label, lockLevel ) );
+                    return true;
                 }
+
+                logger.trace( "Waiting for lock to clear; locking as: {} from: {}", lockLevel, label );
+                wait( 100 );
             }
         }
 
-        if ( trace ) logger.trace( "{}: {}: Lock failed", System.currentTimeMillis(), name );
+        logger.trace( "{}: {}: Lock failed", System.currentTimeMillis(), name );
         return false;
     }
 
-    private synchronized <T> T traversePathAnd( String path, String label,
-                                                BiFunction<AtomicReference<FileTree>, String, Boolean> inbound,
-                                                Function<FileTree, T> resultProcessor, T defValue )
+    public JoinableFile setOrJoinFile( File realFile, StreamCallbacks callbacks, boolean doOutput, long timeout, TimeUnit unit )
+            throws IOException, InterruptedException
     {
-        if ( isEmpty( path ) )
+        boolean removed = false;
+        JoinableFile result = null;
+
+        if ( tryLock( realFile, "Open File for " + ( doOutput ? "output" : "input" ),
+                      doOutput ? LockLevel.write : read, timeout, unit ) )
         {
-            if ( subTrees != null && !subTrees.isEmpty() )
+            FileEntry entry = entryMap.get( realFile.getAbsolutePath() );
+
+            synchronized ( entry )
             {
-                return resultProcessor.apply( this );
-            }
-            else
-            {
-                return defValue;
+                if ( entry.file != null )
+                {
+                    if ( doOutput && entry.file.isWriteLocked() )
+                    {
+                        if ( entry.lock.unlock() )
+                        {
+                            entryMap.remove( realFile.getAbsolutePath() );
+                            removed = true;
+                        }
+
+                        throw new IOException( "POSSIBLE CORRUPTION DETECTED! OutputStream was already open for unlocked file: " + realFile );
+                    }
+
+                    result = entry.file;
+                }
+                else
+                {
+                    JoinableFile joinableFile =
+                            new JoinableFile( realFile, entry.lock, new FileTreeCallbacks( callbacks, entry, realFile ), doOutput );
+
+                    entry.file = joinableFile;
+                    result = joinableFile;
+                }
             }
         }
 
-        Logger logger = LoggerFactory.getLogger( getClass() );
-
-        List<FileTree> nodes = new ArrayList<>();
-        // TODO: doesn't work on Windows...
-        AtomicReference<FileTree> ref = new AtomicReference<>( this );
-        logger.trace( "{}: Start at: {}", label, this );
-
-        String[] parts = path.split( "/" );
-        if ( parts.length < 1 || ( parts.length == 1 && isEmpty( parts[0] ) ) )
+        if ( removed )
         {
-            return defValue;
-        }
-
-        Stream.of( parts ).skip( isEmpty( parts[0] ) ? 1 : 0 ).map( ( part ) -> {
-            Boolean proceed = inbound.apply( ref, part );
-            if ( proceed )
+            synchronized ( this )
             {
-                nodes.add( ref.get() );
+                notifyAll();
             }
-            return proceed;
-        } ).filter( ( r ) -> !r ).findFirst();
-
-        FileTree current = ref.get();
-        logger.trace( "{}: Returning traversal result of: {}", label, current );
-
-        T result;
-        if ( current != null && current != this )
-        {
-            result = resultProcessor.apply( current );
-        }
-        else
-        {
-            result = defValue;
         }
 
         return result;
     }
 
-    private synchronized void searchAnd( FileTree start, String label, Predicate<FileTree> filter,
-                                         Consumer<FileTree> processor )
+    public boolean delete( File file, long timeout, TimeUnit unit )
+            throws InterruptedException, IOException
     {
-        if ( subTrees == null || subTrees.isEmpty() )
+        if ( tryLock( file, "Delete File", LockLevel.delete, timeout, unit ) )
         {
-            return;
-        }
-
-        Logger logger = LoggerFactory.getLogger( getClass() );
-
-        // TODO: doesn't work on Windows...
-        List<FileTree> toExamine = Collections.synchronizedList( new ArrayList<>() );
-        toExamine.add( start );
-
-        do
-        {
-            FileTree next = toExamine.remove( 0 );
-
-            if ( next.subTrees != null && !next.subTrees.isEmpty() )
+            FileEntry entry = entryMap.remove( file.getAbsolutePath() );
+            synchronized ( this )
             {
-                logger.trace( "{}: Examining sub-trees of: {}", label, next );
-                next.subTrees.values().parallelStream().filter( filter ).forEach( ( tree ) -> {
-                    logger.trace( "{}: processing {}", label, tree );
-                    processor.accept( tree );
-                    logger.trace( "{}: Adding {} to list of tree awaiting examination.", label, tree );
-                    toExamine.add( tree );
-                } );
+                notifyAll();
             }
+
+            FileUtils.forceDelete( file );
+            return true;
         }
-        while ( !toExamine.isEmpty() );
+
+        return false;
     }
 
-    public JoinableFile getFile()
-    {
-        return file;
-    }
-
-    public JoinableFile setFile( File realFile, StreamCallbacks callbacks, boolean doOutput )
-            throws IOException
-    {
-        this.file = new JoinableFile( realFile, lock, new FileTreeCallbacks( callbacks ), doOutput );
-        return this.file;
-    }
-
-    private class FileTreeCallbacks
+    private final class FileTreeCallbacks
             implements StreamCallbacks
     {
         private StreamCallbacks callbacks;
 
-        public FileTreeCallbacks( StreamCallbacks callbacks )
+        private File file;
+
+        private FileEntry entry;
+
+        public FileTreeCallbacks( StreamCallbacks callbacks, FileEntry entry, File file )
         {
             this.callbacks = callbacks;
+            this.file = file;
+            this.entry = entry;
         }
 
         @Override
@@ -479,10 +322,10 @@ public class FileTree
                 callbacks.beforeClose();
             }
 
-            synchronized( FileTree.this )
+            synchronized( entry )
             {
                 //            FileTree.this.lock.lock();
-                FileTree.this.file = null;
+                entry.file = null;
                 //            FileTree.this.lock.unlock();
             }
         }
@@ -496,11 +339,8 @@ public class FileTree
             }
 
             Logger logger = LoggerFactory.getLogger( getClass() );
-            while ( FileTree.this.isLocked() )
-            {
-                logger.trace( "unlocking" );
-                FileTree.this.unlock();
-            }
+            logger.trace( "unlocking" );
+            FileTree.this.unlock( file );
         }
     }
 }

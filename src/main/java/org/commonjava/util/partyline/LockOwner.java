@@ -36,28 +36,12 @@ public class LockOwner
 
     private final Stack<String> lockRefs = new Stack<>();
 
-    public LockOwner()
-    {
-    }
+    private final LockLevel lockLevel;
 
-    public boolean isLocked()
+    public LockOwner( String label, LockLevel lockLevel )
     {
-        return threadId != null;
-    }
+        this.lockLevel = lockLevel;
 
-    public synchronized LockOwner unlock()
-    {
-        lockOrigin = null;
-        threadName = null;
-        threadId = null;
-        threadRef.clear();
-        lockRefs.clear();
-
-        return this;
-    }
-
-    public synchronized LockOwner lock( String label )
-    {
         final Thread t = Thread.currentThread();
         this.threadRef = new WeakReference<Thread>( t );
         this.threadName = t.getName() + "(" + label + ")";
@@ -73,8 +57,35 @@ public class LockOwner
         }
 
         increment( label );
+    }
 
-        return this;
+    public boolean isLocked()
+    {
+        return !lockRefs.isEmpty();
+    }
+
+    public synchronized boolean lock( String label, LockLevel lockLevel )
+    {
+        switch ( lockLevel )
+        {
+            case delete:
+            case write:
+            {
+                return false;
+            }
+            case read:
+            {
+                if ( this.lockLevel == LockLevel.delete )
+                {
+                    return false;
+                }
+
+                increment( label );
+                return true;
+            }
+            default:
+                return false;
+        }
     }
 
     public boolean isAlive()
@@ -116,7 +127,9 @@ public class LockOwner
 
     public synchronized CharSequence getLockInfo()
     {
-        return new StringBuilder().append( "Thread: " )
+        return new StringBuilder().append( "Lock level: " )
+                                  .append( lockLevel )
+                                  .append( "\nThread: " )
                                   .append( threadName )
                                   .append( "\nLock Count: " )
                                   .append( lockRefs.size() )
@@ -124,27 +137,17 @@ public class LockOwner
                                   .append( join( lockRefs, "\n  " ) );
     }
 
-    public synchronized int increment( String label )
-    {
-        return increment( label, true );
-    }
-
-    public synchronized int increment( String label, boolean trace )
+    private synchronized int increment( String label )
     {
         lockRefs.push( label );
         Logger logger = LoggerFactory.getLogger( getClass() );
 
         int lockCount = lockRefs.size();
-        if ( trace ) logger.trace( "Incremented lock count to: {} with ref: {}", lockCount, label );
+        logger.trace( "Incremented lock count to: {} with ref: {}", lockCount, label );
         return lockCount;
     }
 
-    public synchronized int decrement()
-    {
-        return decrement( true );
-    }
-
-    public synchronized int decrement( boolean trace )
+    public synchronized boolean unlock()
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
         String ref = null;
@@ -153,7 +156,27 @@ public class LockOwner
             ref = lockRefs.pop();
         }
         int lockCount = lockRefs.size();
-        if ( trace ) logger.trace( "Decrementing lock count, popping ref: {}. New count is: {}", ref, lockCount );
-        return lockCount;
+        logger.trace( "Decrementing lock count, popping ref: {}. New count is: {}", ref, lockCount );
+
+        if ( lockCount < 1 )
+        {
+            this.threadId = null;
+            this.threadRef.clear();
+            this.threadName = null;
+            this.lockOrigin = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    public int getLockCount()
+    {
+        return lockRefs.size();
+    }
+
+    public LockLevel getLockLevel()
+    {
+        return lockLevel;
     }
 }

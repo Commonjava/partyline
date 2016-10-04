@@ -22,10 +22,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.commonjava.util.partyline.AsyncFileReader;
 import org.commonjava.util.partyline.JoinableFile;
+import org.commonjava.util.partyline.LockLevel;
 import org.commonjava.util.partyline.LockOwner;
 import org.junit.Assert;
 import org.junit.Rule;
@@ -143,7 +143,7 @@ public abstract class AbstractJointedIOTest
     protected JoinableFile startTimedWrite( final File file, final long delay, final CountDownLatch latch )
         throws Exception
     {
-        final JoinableFile jf = new JoinableFile( file, new LockOwner().lock( name.getMethodName() ), true );
+        final JoinableFile jf = new JoinableFile( file, new LockOwner( name.getMethodName(), LockLevel.write ), true );
 
         newThread( "writer" + writers++, new TimedFileWriter( jf, delay, latch ) ).start();
 
