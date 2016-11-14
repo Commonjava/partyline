@@ -337,12 +337,15 @@ public class FileTree
         while ( f != null );
 
         // search for children...
-        String fp = file.getAbsolutePath();
-        Optional<String> result = entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
-        if ( result.isPresent() )
+        if ( file.isDirectory() )
         {
-            logger.trace( "Child: {} is locked; returning child as locking entry", result.get() );
-            return entryMap.get( result.get() );
+            String fp = file.getAbsolutePath();
+            Optional<String> result = entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
+            if ( result.isPresent() )
+            {
+                logger.trace( "Child: {} is locked; returning child as locking entry", result.get() );
+                return entryMap.get( result.get() );
+            }
         }
 
         return null;
