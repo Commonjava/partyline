@@ -45,6 +45,28 @@ public class JoinableFileManagerTest
     private final JoinableFileManager mgr = new JoinableFileManager();
 
     @Test
+    public void readLockOnDerivativeSiblingFile_DontPreventMainFileRead()
+            throws Exception
+    {
+        String src = "This is a test";
+
+        File d= temp.newFolder();
+        File main = new File( d, "org/foo/bar/1/bar-1.pom" );
+        File derivative = new File( d, "org/foo/bar/1/bar-1.pom.sha1" );
+
+        FileUtils.write( main, src );
+        FileUtils.write( derivative, src );
+
+        InputStream dStream = mgr.openInputStream( derivative );
+        InputStream mStream = mgr.openInputStream( main );
+
+        assertThat( IOUtils.toString( mStream ), equalTo( src ) );
+
+        dStream.close();
+        mStream.close();
+    }
+
+    @Test
     public void lockWriteDoesntPreventOpenInputStream()
             throws Exception
     {
