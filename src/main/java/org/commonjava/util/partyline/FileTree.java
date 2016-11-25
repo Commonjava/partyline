@@ -204,14 +204,27 @@ public class FileTree
                     entryMap.put( name, new FileEntry( name, label, lockLevel ) );
                     return operation.execute( opLock );
                 }
-                else if ( entry != null )
+                else
                 {
                     //                synchronized ( entry )
                     //                {
-                    if ( entry.name.equals( f.getAbsolutePath() ) && entry.lock.lock( label, lockLevel ) )
+                    if ( entry.name.equals( f.getAbsolutePath() ) )
                     {
-                        logger.trace( "Added lock to existing entry: {}", entry.name );
-                        return operation.execute( opLock );
+                        try
+                        {
+                            if ( entry.lock.lock( label, lockLevel ) )
+                            {
+                                logger.trace( "Added lock to existing entry: {}", entry.name );
+                                return operation.execute( opLock );
+                            }
+                        }
+                        finally
+                        {
+                            if ( LockLevel.delete == entry.lock.getLockLevel() && entry.lock.isLocked() )
+                            {
+                                entry.lock.unlock();
+                            }
+                        }
                     }
 
                     logger.trace( "Waiting for lock to clear; locking as: {} from: {}", lockLevel, label );
