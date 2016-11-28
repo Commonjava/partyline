@@ -43,7 +43,7 @@ public class LockOwner
         this.lockLevel = lockLevel;
 
         final Thread t = Thread.currentThread();
-        this.threadRef = new WeakReference<Thread>( t );
+        this.threadRef = new WeakReference<>( t );
         this.threadName = t.getName() + "(" + label + ")";
         this.threadId = t.getId();
         Logger logger = LoggerFactory.getLogger( getClass() );

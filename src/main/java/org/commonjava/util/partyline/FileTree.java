@@ -200,8 +200,14 @@ public class FileTree
                 FileEntry entry = getLockingEntry( f );
                 if ( entry == null )
                 {
+                    if ( read == lockLevel && !f.exists() )
+                    {
+                        throw new IOException( f + " does not exist. Cannot read-lock missing file!" );
+                    }
+
+                    entry = new FileEntry( name, label, lockLevel );
                     logger.trace( "No lock; locking as: {} from: {}", lockLevel, label );
-                    entryMap.put( name, new FileEntry( name, label, lockLevel ) );
+                    entryMap.put( name, entry );
                     return operation.execute( opLock );
                 }
                 else
@@ -210,20 +216,14 @@ public class FileTree
                     //                {
                     if ( entry.name.equals( f.getAbsolutePath() ) )
                     {
-                        try
+                        if ( entry.lock.lock( label, lockLevel ) )
                         {
-                            if ( entry.lock.lock( label, lockLevel ) )
-                            {
-                                logger.trace( "Added lock to existing entry: {}", entry.name );
-                                return operation.execute( opLock );
-                            }
+                            logger.trace( "Added lock to existing entry: {}", entry.name );
+                            return operation.execute( opLock );
                         }
-                        finally
+                        else
                         {
-                            if ( LockLevel.delete == entry.lock.getLockLevel() && entry.lock.isLocked() )
-                            {
-                                entry.lock.unlock();
-                            }
+                            logger.trace( "Lock failed, but retry may allow another attempt..." );
                         }
                     }
 
@@ -317,10 +317,18 @@ public class FileTree
             opLock.signal();
             //            }
 
-            if ( file.exists() )
+            try
             {
-                FileUtils.forceDelete( file );
+                if ( file.exists() )
+                {
+                    FileUtils.forceDelete( file );
+                }
             }
+            finally
+            {
+                unlock( file );
+            }
+
             return true;
         } ) == Boolean.TRUE;
     }
