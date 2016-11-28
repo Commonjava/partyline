@@ -38,6 +38,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
@@ -86,7 +87,7 @@ public class JoinableFileManagerConcurrentTest
     {
         String src = "This is a test";
 
-        File f = temp.newFile("test.txt");
+        File f = temp.newFile( "test.txt" );
         FileUtils.write( f, src );
 
         Future<Boolean> streamFuture = testPool.submit( () -> {
@@ -95,7 +96,7 @@ public class JoinableFileManagerConcurrentTest
             try
             {
                 stream = fileManager.openInputStream( f );
-                System.out.println(stream + " doing stuff...");
+                System.out.println( stream + " doing stuff..." );
                 stream.close();
             }
             catch ( final IOException e )
@@ -148,6 +149,72 @@ public class JoinableFileManagerConcurrentTest
         assertThat( readingResult1, equalTo( content ) );
         final String readingResult2 = readingFuture2.get();
         assertThat( readingResult2, equalTo( content ) );
+    }
+
+    @Test
+    public void testConcurrentOps()
+            throws Exception
+    {
+        final ExecutorService execs = Executors.newFixedThreadPool( 5 );
+        final File f = temp.newFile( "child.txt" );
+        final CountDownLatch latch = new CountDownLatch( 5 );
+        final JoinableFileManager manager = new JoinableFileManager();
+        final long start = System.currentTimeMillis();
+        execs.execute( () -> {
+            try (OutputStream o = manager.openOutputStream( f ))
+            {
+                Thread.sleep( 1000 );
+                System.out.println( o );
+            }
+            catch ( Exception e )
+            {
+                e.printStackTrace();
+            }
+            latch.countDown();
+            System.out.println(
+                    String.format( "[%s] Count down after write thread: %s", Thread.currentThread().getName(),
+                                   latch.getCount() ) );
+        } );
+
+        for ( int i = 0; i < 3; i++ )
+        {
+            final int k = i;
+            execs.execute( () -> {
+                try (InputStream s = manager.openInputStream( f ))
+                {
+                    Thread.sleep( 1000 );
+                    System.out.println( s );
+                }
+                catch ( Exception e )
+                {
+                    e.printStackTrace();
+                }
+                latch.countDown();
+                System.out.println(
+                        String.format( "[%s] Count down after %s read thread: %s", Thread.currentThread().getName(), k,
+                                       latch.getCount() ) );
+            } );
+        }
+
+        execs.execute( () -> {
+            try
+            {
+                manager.tryDelete( f );
+            }
+            catch ( Exception e )
+            {
+                e.printStackTrace();
+            }
+            latch.countDown();
+            System.out.println(
+                    String.format( "[%s] Count down after delete thread: %s", Thread.currentThread().getName(),
+                                   latch.getCount() ) );
+        } );
+
+        latch.await( 6, TimeUnit.SECONDS );
+        final long end = System.currentTimeMillis();
+        final long waste = end - start;
+        assertTrue( waste < 6000 );
     }
 
     private abstract class IOTask
