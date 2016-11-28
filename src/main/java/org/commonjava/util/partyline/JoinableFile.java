@@ -239,6 +239,10 @@ public class JoinableFile
             logger.trace( "Joints closed, really closing..." );
             reallyClose();
         }
+        else
+        {
+            owner.unlock();
+        }
     }
 
     /**
@@ -325,6 +329,10 @@ public class JoinableFile
                 closed = true;
                 reallyClose();
             }
+        }
+        else
+        {
+            owner.unlock();
         }
     }
 
