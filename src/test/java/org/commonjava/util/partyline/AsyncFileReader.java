@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.commons.io.IOUtils;
-import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
 
 public final class AsyncFileReader
     implements Runnable

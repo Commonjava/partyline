@@ -18,6 +18,7 @@ package org.commonjava.util.partyline.fixture;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.commons.io.IOUtils;
+import org.commonjava.util.partyline.AbstractJointedIOTest;
 import org.commonjava.util.partyline.JoinableFile;
 
 public final class TimedFileWriter

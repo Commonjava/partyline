@@ -1,6 +1,10 @@
 package org.commonjava.util.partyline.fixture;
 
 import org.apache.commons.lang.StringUtils;
+import org.junit.rules.TestName;
+import org.junit.rules.TestRule;
+import org.junit.rules.Timeout;
+import org.junit.runners.model.Statement;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.MonitorInfo;
@@ -53,5 +57,34 @@ public final class ThreadDumper
         } );
 
         System.out.println( sb );
+    }
+
+    public static TestRule wrap( TestName name, Timeout build )
+    {
+        return ( base, description ) -> new ThreadDumpWrapper( name, build.apply( base, description ) );
+    }
+
+    private static class ThreadDumpWrapper
+            extends Statement
+    {
+        private final String testMethod;
+
+        private Statement base;
+
+        public ThreadDumpWrapper( TestName name, Statement base )
+        {
+            this.testMethod = name.getMethodName();
+            this.base = base;
+        }
+
+        @Override
+        public void evaluate()
+                throws Throwable
+        {
+            System.out.println( "Test timeout: " + testMethod + ". Thread dump: ");
+            dumpThreads();
+
+            base.evaluate();
+        }
     }
 }
