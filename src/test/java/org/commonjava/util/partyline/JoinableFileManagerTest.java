@@ -17,7 +17,6 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.commonjava.util.partyline.fixture.AbstractJointedIOTest;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -75,7 +74,7 @@ public class JoinableFileManagerTest
         File f = temp.newFile();
         FileUtils.write( f, src );
 
-        assertThat( "Write lock failed.", mgr.lock( f, -1, LockLevel.write ), equalTo( true ) );
+        assertThat( "Write lock failed.", mgr.lock( f, -1, LockLevel.write, "test" ), equalTo( true ) );
 
         InputStream stream = mgr.openInputStream( f );
         assertThat( "InputStream cannot be null", stream, notNullValue() );
@@ -167,7 +166,7 @@ public class JoinableFileManagerTest
         mgr.startReporting( 0, 1000 );
 
         final OpenOutputStream secondRunnable = new OpenOutputStream( f, -1 );
-        final Map<String, Long> timings = testTimings( new TimedTask( first, new OpenOutputStream( f, 10000 ) ) );
+        final Map<String, Long> timings = testTimings( new TimedTask( first, new OpenOutputStream( f, 6000 ) ) );
 
         System.out.println( first + " completed at: " + timings.get( first ) );
         System.out.println( second + " completed at: " + timings.get( second ) );
@@ -257,7 +256,7 @@ public class JoinableFileManagerTest
         final File f = temp.newFile("test.txt");
         final OpenOutputStream outputRunnable = new OpenOutputStream( f, -1 );
 
-        final String lockUnlock = "lock-unlock";
+        final String lockUnlock = "lock-clearLocks";
         final String output = "output";
 
         final Map<String, Long> timings =
@@ -346,7 +345,7 @@ public class JoinableFileManagerTest
             try
             {
                 logger.trace( "locking: {}", file );
-                final boolean locked = mgr.lock( file, 100, LockLevel.write );
+                final boolean locked = mgr.lock( file, 100, LockLevel.write, "test" );
 
                 logger.trace( "locked? {}", locked );
 
@@ -361,7 +360,7 @@ public class JoinableFileManagerTest
             }
 
             logger.trace( "unlocking: {}", file );
-            assertThat( mgr.unlock( file ), equalTo( true ) );
+            assertThat( mgr.unlock( file, "test" ), equalTo( true ) );
         }
     }
 

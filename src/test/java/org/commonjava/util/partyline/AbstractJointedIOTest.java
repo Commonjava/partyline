@@ -13,7 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.commonjava.util.partyline.fixture;
+package org.commonjava.util.partyline;
+
+import org.commonjava.util.partyline.fixture.TimedFileWriter;
+import org.commonjava.util.partyline.fixture.TimedTask;
+import org.junit.Assert;
+import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
+import org.junit.rules.TestName;
+import org.junit.rules.Timeout;
 
 import java.io.File;
 import java.lang.Thread.UncaughtExceptionHandler;
@@ -22,15 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-
-import org.commonjava.util.partyline.AsyncFileReader;
-import org.commonjava.util.partyline.JoinableFile;
-import org.commonjava.util.partyline.LockLevel;
-import org.commonjava.util.partyline.LockOwner;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.rules.TemporaryFolder;
-import org.junit.rules.TestName;
+import java.util.concurrent.TimeUnit;
 
 public abstract class AbstractJointedIOTest
 {
@@ -42,6 +42,18 @@ public abstract class AbstractJointedIOTest
 
     @Rule
     public TestName name = new TestName();
+
+//    @Rule
+//    public TestRule timeout = ThreadDumper.wrap( Timeout.builder()
+//                                                        .withLookingForStuckThread( true )
+//                                                        .withTimeout( 10, TimeUnit.SECONDS )
+//                                                        .build() );
+
+    @Rule
+    public Timeout timeout = Timeout.builder()
+                                    .withLookingForStuckThread( true )
+                                    .withTimeout( 10, TimeUnit.SECONDS )
+                                    .build();
 
     protected int readers = 0;
 
@@ -143,9 +155,10 @@ public abstract class AbstractJointedIOTest
     protected JoinableFile startTimedWrite( final File file, final long delay, final CountDownLatch latch )
         throws Exception
     {
-        final JoinableFile jf = new JoinableFile( file, new LockOwner( name.getMethodName(), LockLevel.write ), true );
+        String threadName = "writer" + writers++;
+        final JoinableFile jf = new JoinableFile( file, new LockOwner( threadName, name.getMethodName(), LockLevel.write ), true );
 
-        newThread( "writer" + writers++, new TimedFileWriter( jf, delay, latch ) ).start();
+        newThread( threadName, new TimedFileWriter( jf, delay, latch ) ).start();
 
         return jf;
     }

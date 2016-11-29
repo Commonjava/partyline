@@ -19,11 +19,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.ref.WeakReference;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Stack;
 
 import static org.apache.commons.lang.StringUtils.join;
 
-public class LockOwner
+final class LockOwner
 {
 
     private WeakReference<Thread> threadRef;
@@ -34,16 +36,16 @@ public class LockOwner
 
     private StackTraceElement[] lockOrigin;
 
-    private final Stack<String> lockRefs = new Stack<>();
+    private final Map<String, String> lockRefs = new LinkedHashMap<>();
 
     private final LockLevel lockLevel;
 
-    public LockOwner( String label, LockLevel lockLevel )
+    LockOwner( String ownerName, String label, LockLevel lockLevel )
     {
         this.lockLevel = lockLevel;
 
         final Thread t = Thread.currentThread();
-        this.threadRef = new WeakReference<Thread>( t );
+        this.threadRef = new WeakReference<>( t );
         this.threadName = t.getName() + "(" + label + ")";
         this.threadId = t.getId();
         Logger logger = LoggerFactory.getLogger( getClass() );
@@ -56,15 +58,15 @@ public class LockOwner
             this.lockOrigin = null;
         }
 
-        increment( label );
+        increment( ownerName, label );
     }
 
-    public boolean isLocked()
+    boolean isLocked()
     {
         return !lockRefs.isEmpty();
     }
 
-    public synchronized boolean lock( String label, LockLevel lockLevel )
+    synchronized boolean lock( String ownerName, String label, LockLevel lockLevel )
     {
         switch ( lockLevel )
         {
@@ -80,7 +82,7 @@ public class LockOwner
                     return false;
                 }
 
-                increment( label );
+                increment( ownerName, label );
                 return true;
             }
             default:
@@ -88,27 +90,27 @@ public class LockOwner
         }
     }
 
-    public boolean isAlive()
+    boolean isAlive()
     {
         return threadRef.get() != null && threadRef.get().isAlive();
     }
 
-    public long getThreadId()
+    long getThreadId()
     {
         return threadId;
     }
 
-    public String getThreadName()
+    String getThreadName()
     {
         return threadName;
     }
 
-    public StackTraceElement[] getLockOrigin()
+    StackTraceElement[] getLockOrigin()
     {
         return lockOrigin;
     }
 
-    public Thread getThread()
+    Thread getThread()
     {
         return threadRef.get();
     }
@@ -120,12 +122,12 @@ public class LockOwner
                               lockOrigin == null ? "-suppressed-" : join( lockOrigin, "\n  " ) );
     }
 
-    public boolean isOwnedByCurrentThread()
+    boolean isOwnedByCurrentThread()
     {
         return threadId == Thread.currentThread().getId();
     }
 
-    public synchronized CharSequence getLockInfo()
+    synchronized CharSequence getLockInfo()
     {
         return new StringBuilder().append( "Lock level: " )
                                   .append( lockLevel )
@@ -134,12 +136,17 @@ public class LockOwner
                                   .append( "\nLock Count: " )
                                   .append( lockRefs.size() )
                                   .append( "\nReferences:\n  " )
-                                  .append( join( lockRefs, "\n  " ) );
+                                  .append( join( lockRefs.entrySet(), "\n  " ) );
     }
 
-    private synchronized int increment( String label )
+    private synchronized int increment( String ownerName, String label )
     {
-        lockRefs.push( label );
+        if ( ownerName == null )
+        {
+            ownerName = Thread.currentThread().getName();
+        }
+
+        lockRefs.put( ownerName, label );
         Logger logger = LoggerFactory.getLogger( getClass() );
 
         int lockCount = lockRefs.size();
@@ -147,16 +154,21 @@ public class LockOwner
         return lockCount;
     }
 
-    public synchronized boolean unlock()
+    synchronized boolean unlock( String threadName )
     {
+        if ( threadName == null )
+        {
+            threadName = Thread.currentThread().getName();
+        }
+
         Logger logger = LoggerFactory.getLogger( getClass() );
         String ref = null;
         if ( !lockRefs.isEmpty() )
         {
-            ref = lockRefs.pop();
+            ref = lockRefs.remove( threadName );
         }
         int lockCount = lockRefs.size();
-        logger.trace( "Decrementing lock count, popping ref: {}. New count is: {}", ref, lockCount );
+        logger.trace( "{} Decrementing lock count, popping ref: {}. New count is: {}\nLock Info:\n{}", threadName, ref, lockCount, getLockInfo() );
 
         if ( lockCount < 1 )
         {
@@ -170,13 +182,18 @@ public class LockOwner
         return false;
     }
 
-    public int getLockCount()
+    int getLockCount()
     {
         return lockRefs.size();
     }
 
-    public LockLevel getLockLevel()
+    LockLevel getLockLevel()
     {
         return lockLevel;
+    }
+
+    synchronized void clearLocks()
+    {
+        lockRefs.clear();
     }
 }

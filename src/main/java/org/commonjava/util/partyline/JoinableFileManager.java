@@ -15,8 +15,6 @@
  */
 package org.commonjava.util.partyline;
 
-import org.apache.commons.io.IOUtils;
-import org.commonjava.util.partyline.callback.AbstractStreamCallbacks;
 import org.commonjava.util.partyline.callback.CallbackInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -260,23 +258,24 @@ public class JoinableFileManager
     /**
      * Manually lock the specified file to prevent opening any streams via this manager (until manually unlocked).
      */
-    public boolean lock( final File file, long timeout, LockLevel lockLevel )
+    public boolean lock( final File file, long timeout, LockLevel lockLevel, String operationName )
             throws InterruptedException
     {
         logger.trace( ">>>MANUAL LOCK: {}", file );
-        boolean result = locks.tryLock( file, "Manual lock", lockLevel, timeout, TimeUnit.MILLISECONDS );
+        boolean result = locks.tryLock( file, operationName, "Manual lock", lockLevel, timeout, TimeUnit.MILLISECONDS );
         logger.trace( "<<<MANUAL LOCK (result: {})", result );
 
         return result;
     }
 
     /**
-     * If the specified file was manually locked, unlock it and return true. Otherwise, return false.
+     * If the specified file was manually locked, unlock it and return the state of locks remaining on the file.
+     * Return true if the file is unlocked, false if locks remain.
      */
-    public boolean unlock( final File file )
+    public boolean unlock( final File file, String operationName )
     {
-        logger.trace( ">>>MANUAL UNLOCK: {} by: {}", file, Thread.currentThread().getName() );
-        boolean result = locks.unlock( file );
+        logger.trace( ">>>MANUAL UNLOCK: {} by: {}", file, operationName );
+        boolean result = locks.unlock( file, operationName );
 
         if ( result )
         {
