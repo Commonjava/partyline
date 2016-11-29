@@ -115,7 +115,7 @@ final class FileTree
     {
         try
         {
-            return withOpLock( f, (opLock)->{
+            return withOpLock( f, ( opLock ) -> {
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
@@ -170,12 +170,11 @@ final class FileTree
         return false;
     }
 
-
     private boolean clearLocks( File f )
     {
         try
         {
-            return withOpLock( f, (opLock)->{
+            return withOpLock( f, ( opLock ) -> {
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
@@ -241,7 +240,7 @@ final class FileTree
     }
 
     private <T> T tryLock( File f, String ownerName, String label, LockLevel lockLevel, long timeout, TimeUnit unit,
-                          LockedOperation<T> operation )
+                           LockedOperation<T> operation )
             throws InterruptedException, IOException
     {
         return withOpLock( f, ( opLock ) -> {
@@ -251,61 +250,73 @@ final class FileTree
             logger.trace( "{}: Trying to lock until: {}", System.currentTimeMillis(), end );
 
             String name = f.getAbsolutePath();
-            while ( end < 1 || System.currentTimeMillis() < end )
+            FileEntry entry = null;
+            try
             {
-                FileEntry entry = getLockingEntry( f );
-                if ( entry == null )
+                while ( end < 1 || System.currentTimeMillis() < end )
                 {
-                    if ( read == lockLevel && !f.exists() )
+                    entry = getLockingEntry( f );
+                    if ( entry == null )
                     {
-                        throw new IOException( f + " does not exist. Cannot read-lock missing file!" );
-                    }
+                        if ( read == lockLevel && !f.exists() )
+                        {
+                            throw new IOException( f + " does not exist. Cannot read-lock missing file!" );
+                        }
 
-                    entry = new FileEntry( name, label, lockLevel, ownerName );
-                    logger.trace( "No lock; locking as: {} from: {}", lockLevel, label );
-                    entryMap.put( name, entry );
-                    try
-                    {
-                        return operation.execute( opLock );
+                        entry = new FileEntry( name, label, lockLevel, ownerName );
+                        logger.trace( "No lock; locking as: {} from: {}", lockLevel, label );
+                        entryMap.put( name, entry );
+                        try
+                        {
+                            return operation.execute( opLock );
+                        }
+                        catch ( IOException e )
+                        {
+                            // we just locked this, and the call failed...reverse the lock operation.
+                            // NOTE: This will CLEAR all locks, which is what we want since there was no FileEntry before.
+                            clearLocks( f );
+                            throw e;
+                        }
                     }
-                    catch ( IOException e )
+                    else
                     {
-                        // we just locked this, and the call failed...reverse the lock operation.
-                        // NOTE: This will CLEAR all locks, which is what we want since there was no FileEntry before.
-                        clearLocks( f );
-                        throw e;
+                        //                synchronized ( entry )
+                        //                {
+                        if ( entry.name.equals( f.getAbsolutePath() ) )
+                        {
+                            if ( entry.lock.lock( ownerName, label, lockLevel ) )
+                            {
+                                logger.trace( "Added lock to existing entry: {}", entry.name );
+                                try
+                                {
+                                    return operation.execute( opLock );
+                                }
+                                catch ( IOException e )
+                                {
+                                    // we just locked this, and the call failed...reverse the lock operation.
+                                    entry.lock.unlock( ownerName );
+                                    throw e;
+                                }
+                            }
+                            else
+                            {
+                                logger.trace( "Lock failed, but retry may allow another attempt..." );
+                            }
+                        }
+
+                        logger.trace( "Waiting for lock to clear; locking as: {} from: {}", lockLevel, label );
+                        //                    entry.wait( 100 );
+                        opLock.await( WAIT_TIMEOUT );
+                        //                }
                     }
                 }
-                else
+            }
+            finally
+            {
+                // no matter what else happens, do NOT allow a delete lock to remain
+                if ( entry != null && entry.lock.getLockLevel() == LockLevel.delete && entry.lock.isLocked() )
                 {
-                    //                synchronized ( entry )
-                    //                {
-                    if ( entry.name.equals( f.getAbsolutePath() ) )
-                    {
-                        if ( entry.lock.lock( ownerName, label, lockLevel ) )
-                        {
-                            logger.trace( "Added lock to existing entry: {}", entry.name );
-                            try
-                            {
-                                return operation.execute( opLock );
-                            }
-                            catch ( IOException e )
-                            {
-                                // we just locked this, and the call failed...reverse the lock operation.
-                                entry.lock.unlock( ownerName );
-                                throw e;
-                            }
-                        }
-                        else
-                        {
-                            logger.trace( "Lock failed, but retry may allow another attempt..." );
-                        }
-                    }
-
-                    logger.trace( "Waiting for lock to clear; locking as: {} from: {}", lockLevel, label );
-                    //                    entry.wait( 100 );
-                    opLock.await( WAIT_TIMEOUT );
-                    //                }
+                    clearLocks( f );
                 }
             }
 
@@ -315,7 +326,7 @@ final class FileTree
     }
 
     JoinableFile setOrJoinFile( File realFile, StreamCallbacks callbacks, boolean doOutput, long timeout,
-                                       TimeUnit unit )
+                                TimeUnit unit )
             throws IOException, InterruptedException
     {
         long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
@@ -393,16 +404,9 @@ final class FileTree
             opLock.signal();
             //            }
 
-            try
+            if ( file.exists() )
             {
-                if ( file.exists() )
-                {
-                    FileUtils.forceDelete( file );
-                }
-            }
-            finally
-            {
-                clearLocks( file );
+                FileUtils.forceDelete( file );
             }
 
             return true;
@@ -437,7 +441,8 @@ final class FileTree
         if ( file.isDirectory() )
         {
             String fp = file.getAbsolutePath();
-            Optional<String> result = entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
+            Optional<String> result =
+                    entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
             if ( result.isPresent() )
             {
                 logger.trace( "Child: {} is locked; returning child as locking entry", result.get() );
