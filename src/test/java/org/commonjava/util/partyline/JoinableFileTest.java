@@ -349,7 +349,7 @@ public class JoinableFileTest
     {
         final CountDownLatch latch = new CountDownLatch( 2 );
         final JoinableFile stream = startTimedWrite( 1, latch );
-        startRead( 0, -1, 10000, stream, latch );
+        startRead( 0, -1, 6000, stream, latch );
         //        startRead( 500, stream, latch );
 
         System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );

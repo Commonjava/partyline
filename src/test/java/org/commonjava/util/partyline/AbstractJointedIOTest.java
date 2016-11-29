@@ -15,6 +15,14 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.util.partyline.fixture.TimedFileWriter;
+import org.commonjava.util.partyline.fixture.TimedTask;
+import org.junit.Assert;
+import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
+import org.junit.rules.TestName;
+import org.junit.rules.Timeout;
+
 import java.io.File;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.Arrays;
@@ -23,20 +31,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
-import org.commonjava.util.partyline.AsyncFileReader;
-import org.commonjava.util.partyline.JoinableFile;
-import org.commonjava.util.partyline.LockLevel;
-import org.commonjava.util.partyline.LockOwner;
-import org.commonjava.util.partyline.fixture.ThreadDumper;
-import org.commonjava.util.partyline.fixture.TimedFileWriter;
-import org.commonjava.util.partyline.fixture.TimedTask;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.rules.TemporaryFolder;
-import org.junit.rules.TestName;
-import org.junit.rules.TestRule;
-import org.junit.rules.Timeout;
 
 public abstract class AbstractJointedIOTest
 {

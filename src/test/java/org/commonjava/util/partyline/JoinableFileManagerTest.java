@@ -166,7 +166,7 @@ public class JoinableFileManagerTest
         mgr.startReporting( 0, 1000 );
 
         final OpenOutputStream secondRunnable = new OpenOutputStream( f, -1 );
-        final Map<String, Long> timings = testTimings( new TimedTask( first, new OpenOutputStream( f, 10000 ) ) );
+        final Map<String, Long> timings = testTimings( new TimedTask( first, new OpenOutputStream( f, 6000 ) ) );
 
         System.out.println( first + " completed at: " + timings.get( first ) );
         System.out.println( second + " completed at: " + timings.get( second ) );
