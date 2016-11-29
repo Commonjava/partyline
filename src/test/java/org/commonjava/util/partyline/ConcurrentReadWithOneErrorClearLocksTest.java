@@ -44,40 +44,51 @@ public class ConcurrentReadWithOneErrorClearLocksTest
      * </ol>
      * @throws Exception
      */
+    /*@formatter:off*/
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean everything waits until all threads are started.
             @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
                      targetMethod = "<init>",
                      targetLocation = "ENTRY",
-                     action = "createRendezvous(\"begin\", 4); createCountDown(\"join\", 2)" ),
+                     action = "createRendezvous(\"begin\", 4); "
+                             + "createCountDown(\"join\", 2)" ),
 
             // setup the pause for openOutputStream, which rendezvous with openInputStream calls, then
             // waits for one openInputStream call to exit
             @BMRule( name = "openOutputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openOutputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for DELETE.\"); rendezvous(\"begin\"); debug(\"Wait for READ\"); waitFor(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for DELETE.\"); " + "rendezvous(\"begin\"); "
+                             + "debug(\"Wait for READ\"); "
+                             + "waitFor(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the rendezvous to wait for all threads to be ready before proceeding
             @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for ALL to start.\"); rendezvous(\"begin\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for ALL to start.\"); "
+                             + "rendezvous(\"begin\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the trigger to signal openOutputStream when the first openInputStream exits
             @BMRule( name = "openInputStream end", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "EXIT",
-                     action = "debug(\"Signal READ.\"); signalWake(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
+                     action = "debug(\"Signal READ.\"); "
+                             + "signalWake(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
 
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
             @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "joinStream",
                      targetLocation = "ENTRY",
                      condition = "countDown(\"join\")",
-                     action = "debug(\"Throwing test exception in \" + Thread.currentThread().getName()); throw new java.io.IOException(\"Test exception\")" ) } )
+                     action = "debug(\"Throwing test exception in \" + Thread.currentThread().getName()); "
+                             + "throw new java.io.IOException(\"Test exception\")" ) } )
+    /*@formatter:on*/
     @Test
     @BMUnitConfig( debug = true )
-//    @Ignore( "Inconsistent result between Maven/IDEA executions; needs to be fixed before release!")
+    //    @Ignore( "Inconsistent result between Maven/IDEA executions; needs to be fixed before release!")
     public void run()
             throws Exception
     {
@@ -101,9 +112,8 @@ public class ConcurrentReadWithOneErrorClearLocksTest
                 e.printStackTrace();
             }
             latch.countDown();
-            System.out.println(
-                    String.format( "[%s] Count down after openOutputStream thread: %s", Thread.currentThread().getName(),
-                                   latch.getCount() ) );
+            System.out.println( String.format( "[%s] Count down after openOutputStream thread: %s",
+                                               Thread.currentThread().getName(), latch.getCount() ) );
         } );
 
         for ( int i = 0; i < 3; i++ )
@@ -122,9 +132,8 @@ public class ConcurrentReadWithOneErrorClearLocksTest
                 finally
                 {
                     latch.countDown();
-                    System.out.println(
-                            String.format( "[%s] Count down after openInputStream-%s read thread: %s", Thread.currentThread().getName(),
-                                           k, latch.getCount() ) );
+                    System.out.println( String.format( "[%s] Count down after openInputStream-%s read thread: %s",
+                                                       Thread.currentThread().getName(), k, latch.getCount() ) );
                 }
             } );
         }

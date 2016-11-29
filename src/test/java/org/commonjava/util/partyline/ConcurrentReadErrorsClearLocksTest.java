@@ -44,6 +44,7 @@ public class ConcurrentReadErrorsClearLocksTest
      * </ol>
      * @throws Exception
      */
+    /*@formatter:off*/
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean everything waits until all threads are started.
             @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
@@ -56,25 +57,34 @@ public class ConcurrentReadErrorsClearLocksTest
             @BMRule( name = "openOutputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openOutputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for READ to start.\"); rendezvous(\"begin\"); waitFor(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for READ to start.\"); "
+                             + "rendezvous(\"begin\"); "
+                             + "waitFor(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the rendezvous to wait for all threads to be ready before proceeding
             @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for ALL to start.\"); rendezvous(\"begin\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for ALL to start.\"); "
+                             + "rendezvous(\"begin\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the trigger to signal openOutputStream when the first openInputStream exits
             @BMRule( name = "openInputStream end", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "EXCEPTION EXIT",
-                     action = "debug(\"Signal READ.\"); signalWake(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
+                     action = "debug(\"Signal READ.\"); "
+                             + "signalWake(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
 
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
             @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      condition = "$4 == false",
-                     action = "debug(\"Throwing test exception.\"); throw new java.io.IOException(\"Test exception\")" ) } )
+                     action = "debug(\"Throwing test exception.\"); "
+                             + "throw new java.io.IOException(\"Test exception\")" ) } )
+    /*@formatter:on*/
     @BMUnitConfig( debug = true )
     @Test
     public void run()

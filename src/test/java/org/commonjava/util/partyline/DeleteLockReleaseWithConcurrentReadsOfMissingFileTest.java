@@ -44,6 +44,7 @@ public class DeleteLockReleaseWithConcurrentReadsOfMissingFileTest
      * </ol>
      * @throws Exception
      */
+    /*@formatter:off*/
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean everything else waits for delete to exit.
             @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
@@ -56,25 +57,36 @@ public class DeleteLockReleaseWithConcurrentReadsOfMissingFileTest
             @BMRule( name = "openOutputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openOutputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for DELETE.\"); rendezvous(\"deleted\"); debug( \"Waiting for READ\"); waitFor(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for DELETE.\"); "
+                             + "rendezvous(\"deleted\"); "
+                             + "debug( \"Waiting for READ\"); "
+                             + "waitFor(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the rendezvous to wait for tryDelete to exit
             @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for DELETE to finish.\"); rendezvous(\"deleted\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for DELETE to finish.\"); "
+                             + "rendezvous(\"deleted\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the trigger to signal openOutputStream when the first openInputStream exits
             @BMRule( name = "openInputStream end", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "EXCEPTION EXIT",
-                     action = "debug(\"Signal READ.\"); signalWake(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
+                     action = "debug(\"Signal READ.\"); "
+                             + "signalWake(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
 
             // setup the trigger to signal all other threads to resume once tryDelete exits
             @BMRule( name = "tryDelete end", targetClass = "JoinableFileManager",
                      targetMethod = "tryDelete",
                      targetLocation = "EXIT",
-                     action = "debug(\"Signal DELETE.\"); rendezvous(\"deleted\"); debug(Thread.currentThread().getName() + \": delete() done.\")" ) } )
+                     action = "debug(\"Signal DELETE.\"); "
+                             + "rendezvous(\"deleted\"); "
+                             + "debug(Thread.currentThread().getName() + \": delete() done.\")" ) } )
+    /*@formatter:on*/
     @Test
     @BMUnitConfig( debug = true )
     public void run()

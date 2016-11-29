@@ -44,6 +44,7 @@ public class ConcurrentReadsClearLocksTest
      * </ol>
      * @throws Exception
      */
+    /*@formatter:off*/
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean everything waits until all threads are started.
             @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
@@ -56,19 +57,27 @@ public class ConcurrentReadsClearLocksTest
             @BMRule( name = "openOutputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openOutputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for READ to start.\"); rendezvous(\"begin\"); waitFor(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for READ to start.\"); "
+                             + "rendezvous(\"begin\"); "
+                             + "waitFor(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the rendezvous to wait for all threads to be ready before proceeding
             @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for ALL to start.\"); rendezvous(\"begin\"); debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
+                     action = "debug(\"Waiting for ALL to start.\"); "
+                             + "rendezvous(\"begin\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
 
             // setup the trigger to signal openOutputStream when the first openInputStream exits
             @BMRule( name = "openInputStream end", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "EXIT",
-                     action = "debug(\"Signal READ.\"); signalWake(\"reading\"); debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ) } )
+                     action = "debug(\"Signal READ.\"); "
+                             + "signalWake(\"reading\"); "
+                             + "debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ) } )
+    /*@formatter:on*/
     @Test
     @BMUnitConfig( debug = true )
     public void run()
