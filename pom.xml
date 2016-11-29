@@ -42,6 +42,7 @@
     <projectOwner>Red Hat, Inc.</projectOwner>
     <javaVersion>1.8</javaVersion>
     <byteman.version>3.0.6</byteman.version>
+    <test-forkCount>1</test-forkCount>
   </properties>
 
   <dependencyManagement>
@@ -127,6 +128,15 @@
           <configuration>
             <detectOfflineLinks>false</detectOfflineLinks>
             <additionalparam>-Xdoclint:none</additionalparam>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>2.19.1</version>
+          <configuration>
+            <redirectTestOutputToFile>true</redirectTestOutputToFile>
+            <forkCount>${test-forkCount}</forkCount>
+            <reuseForks>false</reuseForks>
           </configuration>
         </plugin>
       </plugins>

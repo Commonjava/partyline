@@ -21,16 +21,22 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
+import org.junit.rules.TestRule;
 import org.junit.rules.Timeout;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.InputStream;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 
 public abstract class AbstractJointedIOTest
 {
@@ -43,17 +49,8 @@ public abstract class AbstractJointedIOTest
     @Rule
     public TestName name = new TestName();
 
-//    @Rule
-//    public TestRule timeout = ThreadDumper.wrap( Timeout.builder()
-//                                                        .withLookingForStuckThread( true )
-//                                                        .withTimeout( 10, TimeUnit.SECONDS )
-//                                                        .build() );
-
     @Rule
-    public Timeout timeout = Timeout.builder()
-                                    .withLookingForStuckThread( true )
-                                    .withTimeout( 10, TimeUnit.SECONDS )
-                                    .build();
+    public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
     protected int readers = 0;
 
@@ -136,31 +133,122 @@ public abstract class AbstractJointedIOTest
     protected void startRead( final long initialDelay, final long readDelay, final long closeDelay,
                               final JoinableFile stream, final CountDownLatch latch )
     {
-        newThread( "reader" + readers++, new AsyncFileReader( initialDelay, readDelay, closeDelay, stream, latch ) ).start();
+        newThread( "reader" + readers++,
+                   new AsyncFileReader( initialDelay, readDelay, closeDelay, stream, latch ) ).start();
     }
 
     protected void startTimedRawRead( final File file, final long initialDelay, final long readDelay,
                                       final long closeDelay, final CountDownLatch latch )
     {
-        newThread( "reader" + readers++, new AsyncFileReader( initialDelay, readDelay, closeDelay, file, latch ) ).start();
+        newThread( "reader" + readers++,
+                   new AsyncFileReader( initialDelay, readDelay, closeDelay, file, latch ) ).start();
     }
 
     protected JoinableFile startTimedWrite( final long delay, final CountDownLatch latch )
-        throws Exception
+            throws Exception
     {
         final File file = temp.newFile();
         return startTimedWrite( file, delay, latch );
     }
 
     protected JoinableFile startTimedWrite( final File file, final long delay, final CountDownLatch latch )
-        throws Exception
+            throws Exception
     {
         String threadName = "writer" + writers++;
-        final JoinableFile jf = new JoinableFile( file, new LockOwner( threadName, name.getMethodName(), LockLevel.write ), true );
+        final JoinableFile jf =
+                new JoinableFile( file, new LockOwner( threadName, name.getMethodName(), LockLevel.write ), true );
 
         newThread( threadName, new TimedFileWriter( jf, delay, latch ) ).start();
 
         return jf;
     }
 
+    abstract static class IOTask
+            implements Runnable
+    {
+        protected JoinableFileManager fileManager;
+
+        protected String content;
+
+        protected CountDownLatch controlLatch;
+
+        protected long waiting;
+
+        protected File file;
+
+        protected IOTask( JoinableFileManager fileManager, String content, File file, CountDownLatch controlLatch,
+                          long waiting )
+        {
+            this.fileManager = fileManager;
+            this.content = content;
+            this.file = file;
+            this.controlLatch = controlLatch;
+            this.waiting = waiting;
+        }
+    }
+
+    static final class ReadTask
+            extends IOTask
+            implements Callable<String>
+    {
+        private String readingResult;
+
+        public ReadTask( JoinableFileManager fileManager, String content, File file, CountDownLatch controlLatch )
+        {
+            super( fileManager, content, file, controlLatch, -1 );
+        }
+
+        public ReadTask( JoinableFileManager fileManager, String content, File file, CountDownLatch controlLatch,
+                         long waiting )
+        {
+            super( fileManager, content, file, controlLatch, waiting );
+        }
+
+        @Override
+        public void run()
+        {
+            try
+            {
+                final InputStream in = fileManager.openInputStream( file );
+                if ( in == null )
+                {
+                    System.out.println( "Can not read content as the input stream is null." );
+                    controlLatch.countDown();
+                    return;
+                }
+                final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                int read = -1;
+                final byte[] buf = new byte[512];
+                System.out.println(
+                        String.format( "<<<ReadTask>>> will start to read from the resource with inputStream %s",
+                                       in.getClass().getName() ) );
+                while ( ( read = in.read( buf ) ) > -1 )
+                {
+                    if ( waiting > 0 )
+                    {
+                        Thread.sleep( waiting );
+                    }
+                    baos.write( buf, 0, read );
+                }
+                baos.close();
+                in.close();
+                System.out.println( String.format( "<<<ReadTask>>> reading from the resource done with inputStream %s",
+                                                   in.getClass().getName() ) );
+                readingResult = new String( baos.toByteArray(), "UTF-8" );
+                controlLatch.countDown();
+            }
+            catch ( Exception e )
+            {
+                System.out.println( "Read Task Runtime Exception." );
+                e.printStackTrace();
+            }
+        }
+
+        @Override
+        public String call()
+        {
+            this.run();
+            return readingResult;
+        }
+    }
 }
