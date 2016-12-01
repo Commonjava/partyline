@@ -15,6 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
+import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
@@ -23,11 +24,11 @@ import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
 import org.junit.rules.TestRule;
-import org.junit.rules.Timeout;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -38,6 +39,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
+import static org.junit.Assert.fail;
 
 public abstract class AbstractJointedIOTest
 {
@@ -161,6 +163,18 @@ public abstract class AbstractJointedIOTest
         return jf;
     }
 
+    protected void latchWait( CountDownLatch latch )
+    {
+        try
+        {
+            latch.await();
+        }
+        catch ( InterruptedException e )
+        {
+            System.out.println( "Threads await Exception." );
+        }
+    }
+
     abstract static class IOTask
             implements Runnable
     {
@@ -247,6 +261,193 @@ public abstract class AbstractJointedIOTest
         {
             this.run();
             return readingResult;
+        }
+    }
+
+    static final class OpenOutputStreamTask
+            extends IOTask
+            implements Callable<String>
+    {
+        private OutputStream stream;
+
+        protected OpenOutputStreamTask( JoinableFileManager fileManager, String content, File file )
+        {
+            super( fileManager, content, file, null, -1 );
+        }
+
+        protected OpenOutputStreamTask( JoinableFileManager fileManager, String content, File file, long waiting )
+        {
+            super( fileManager, content, file, null, waiting );
+        }
+
+        protected OpenOutputStreamTask( JoinableFileManager fileManager, String content, File file,
+                                        CountDownLatch controlLatch )
+        {
+            super( fileManager, content, file, controlLatch, -1 );
+        }
+
+        protected OpenOutputStreamTask( JoinableFileManager fileManager, String content, File file,
+                                        CountDownLatch controlLatch, long waiting )
+        {
+            super( fileManager, content, file, controlLatch, waiting );
+        }
+
+        @Override
+        public void run()
+        {
+            try
+            {
+                stream = fileManager.openOutputStream( file );
+            }
+            catch ( final Exception e )
+            {
+                e.printStackTrace();
+                fail( "Failed to open stream: " + e.getMessage() );
+            }
+
+            if ( stream != null && waiting > -1 )
+            {
+                if ( waiting > 0 )
+                {
+                    try
+                    {
+                        Thread.sleep( waiting );
+                    }
+                    catch ( final InterruptedException e )
+                    {
+                        fail( "Interrupted!" );
+                    }
+                }
+                IOUtils.closeQuietly( stream );
+            }
+            if ( controlLatch != null )
+            {
+                controlLatch.countDown();
+            }
+        }
+
+        @Override
+        public String call()
+                throws Exception
+        {
+            this.run();
+            return String.valueOf( System.nanoTime() );
+        }
+    }
+
+    static final class OpenInputStreamTask
+            extends IOTask
+            implements Callable<String>
+    {
+
+        private InputStream stream;
+
+        private String calling;
+
+        protected OpenInputStreamTask( JoinableFileManager fileManager, String content, File file,
+                                       CountDownLatch controlLatch )
+        {
+            super( fileManager, content, file, controlLatch, -1 );
+        }
+
+        protected OpenInputStreamTask( JoinableFileManager fileManager, String content, File file,
+                                       CountDownLatch controlLatch, long waiting )
+        {
+            super( fileManager, content, file, controlLatch, waiting );
+        }
+
+        @Override
+        public void run()
+        {
+            try
+            {
+                stream = fileManager.openInputStream( file );
+                if ( stream == null )
+                {
+                    System.out.println( "Can not read content as the input stream is null." );
+                    controlLatch.countDown();
+                    return;
+                }
+                calling = IOUtils.toString( stream );
+            }
+            catch ( final Exception e )
+            {
+                e.printStackTrace();
+                fail( "Failed to open stream: " + e.getMessage() );
+            }
+
+            if ( waiting > 0 )
+            {
+                try
+                {
+                    Thread.sleep( waiting );
+                }
+                catch ( final InterruptedException e )
+                {
+                    fail( "Interrupted!" );
+                }
+            }
+            IOUtils.closeQuietly( stream );
+            controlLatch.countDown();
+        }
+
+        @Override
+        public String call()
+                throws Exception
+        {
+            this.run();
+            return calling;
+        }
+    }
+
+    static final class OpenInputStreamWithTimeoutTask
+            extends IOTask
+            implements Callable<String>
+    {
+
+        private InputStream stream;
+
+        private String calling;
+
+        private long timingout;
+
+        protected OpenInputStreamWithTimeoutTask( JoinableFileManager fileManager, String content, File file,
+                                                  CountDownLatch controlLatch, long timingout )
+        {
+            super( fileManager, content, file, controlLatch, -1 );
+            this.timingout = timingout;
+        }
+
+        @Override
+        public void run()
+        {
+            try
+            {
+                stream = fileManager.openInputStream( file, timingout );
+                if ( stream == null )
+                {
+                    System.out.println( "Can not read content as the input stream is null." );
+                    controlLatch.countDown();
+                    return;
+                }
+                calling = IOUtils.toString( stream );
+            }
+            catch ( final Exception e )
+            {
+                e.printStackTrace();
+                fail( "Failed to open stream: " + e.getMessage() );
+            }
+
+            IOUtils.closeQuietly( stream );
+            controlLatch.countDown();
+        }
+
+        @Override
+        public String call()
+                throws Exception
+        {
+            this.run();
+            return calling;
         }
     }
 }

@@ -15,7 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
-import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.FileUtils;
 import org.jboss.byteman.contrib.bmunit.BMScript;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
 import org.junit.Rule;
@@ -24,9 +24,6 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -38,8 +35,8 @@ import static org.junit.Assert.assertThat;
 
 @RunWith( org.jboss.byteman.contrib.bmunit.BMUnitRunner.class )
 @BMUnitConfig( loadDirectory = "target/test-classes/bmunit", debug = true )
-public class TwoConcurrentReadsTest
-        extends AbstractBytemanTest
+public class OpenInputStreamConcurrentReadersGetSameResultTest
+        extends AbstractJointedIOTest
 {
     private final ExecutorService testPool = Executors.newFixedThreadPool( 2 );
 
@@ -47,33 +44,26 @@ public class TwoConcurrentReadsTest
 
     private final JoinableFileManager fileManager = new JoinableFileManager();
 
-    private void writeFile( File file, String content )
-            throws IOException
-    {
-        final OutputStream out = new FileOutputStream( file );
-        IOUtils.write( content, out );
-        out.close();
-    }
+    @Rule
+    public TemporaryFolder temp = new TemporaryFolder();
 
     @Test
-    @BMScript( "TryToBothRead.btm" )
-    public void run()
+    @BMScript( "OpenInputStreamConcurrentReadersGetSameResult.btm" )
+    public void openInputStream_ConcurrentReadersGetSameResult()
             throws Exception
     {
-        final String content = "This is a bmunit test";
-        final File file = temp.newFile( "file_both_read.txt" );
-        writeFile( file, content );
-        final Future<String> readingFuture1 =
-                testPool.submit( (Callable<String>) new ReadTask( fileManager, content, file, latch ) );
-        final Future<String> readingFuture2 =
-                testPool.submit( (Callable<String>) new ReadTask( fileManager, content, file, latch ) );
+        final File f = temp.newFile();
+        String str = "This is a test";
+        FileUtils.write( f, str );
+
+        final Future<String> firstReading =
+                testPool.submit( (Callable<String>) new OpenInputStreamTask( fileManager, str, f, latch ) );
+        final Future<String> secondReading = testPool.submit(
+                (Callable<String>) new OpenInputStreamWithTimeoutTask( fileManager, str, f, latch, 10 ) );
 
         latchWait( latch );
 
-        final String readingResult1 = readingFuture1.get();
-        assertThat( readingResult1, equalTo( content ) );
-        final String readingResult2 = readingFuture2.get();
-        assertThat( readingResult2, equalTo( content ) );
+        assertThat( "first reader returned wrong data", firstReading.get(), equalTo( str ) );
+        assertThat( "second reader returned wrong data", secondReading.get(), equalTo( str ) );
     }
-
 }

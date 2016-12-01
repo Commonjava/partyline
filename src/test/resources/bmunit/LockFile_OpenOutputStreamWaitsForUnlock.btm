@@ -1,0 +1,24 @@
+RULE write service
+CLASS AbstractJointedIOTest$OpenOutputStreamTask
+METHOD run
+AT ENTRY
+IF TRUE
+DO
+    debug(">>>wait for service enter unlock service");
+    waitFor("unlock service");
+    java.lang.Thread.sleep(200);
+    debug("<<<proceed with write service");
+ENDRULE
+
+
+RULE unlock service
+CLASS LockFileOpenOutputStreamWaitsForUnlockTest$LockThenUnlockFile
+METHOD run
+AT EXIT
+IF TRUE
+DO
+    debug("<<<signalling write service");
+    signalWake("unlock service", true);
+    debug("<<<signalled write service");
+ENDRULE
+

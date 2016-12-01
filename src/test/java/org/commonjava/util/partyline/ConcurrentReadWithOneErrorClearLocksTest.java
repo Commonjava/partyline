@@ -61,7 +61,7 @@ public class ConcurrentReadWithOneErrorClearLocksTest
     /*@formatter:on*/
     @Test
     @BMUnitConfig( debug = true )
-    //    @Ignore( "Inconsistent result between Maven/IDEA executions; needs to be fixed before release!")
+    //    @Ignore( "Inconsistent result between Maven/IDEA executions; needs to be fixed before release!" )
     public void run()
             throws Exception
     {

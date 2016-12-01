@@ -250,31 +250,6 @@ public class JoinableFileTest
     }
 
     @Test
-    public void joinFileWrite()
-        throws Exception
-    {
-        final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFile stream = startTimedWrite( 0, latch );
-        startRead( 0, stream, latch );
-
-        System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
-        latch.await();
-    }
-
-    @Test
-    public void joinFileWriteTwiceWithDelay()
-        throws Exception
-    {
-        final CountDownLatch latch = new CountDownLatch( 3 );
-        final JoinableFile stream = startTimedWrite( 1, latch );
-        startRead( 0, stream, latch );
-        startRead( 500, stream, latch );
-
-        System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
-        latch.await();
-    }
-
-    @Test
     public void joinFileRead()
             throws Exception
     {
@@ -335,32 +310,6 @@ public class JoinableFileTest
         System.out.println( lines );
 
         assertThat( lines.size(), equalTo( COUNT ) );
-    }
-
-    @Test
-    public void joinFileWriteJustBeforeFinished()
-        throws Exception
-    {
-        final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFile stream = startTimedWrite( 1, latch );
-        startRead( 1000, stream, latch );
-        //        startRead( 500, stream, latch );
-
-        System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
-        latch.await();
-    }
-
-    @Test
-    public void joinFileWriteAndCloseBeforeFinished()
-        throws Exception
-    {
-        final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFile stream = startTimedWrite( 1, latch );
-        startRead( 0, -1, 6000, stream, latch );
-        //        startRead( 500, stream, latch );
-
-        System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
-        latch.await();
     }
 
     @Test

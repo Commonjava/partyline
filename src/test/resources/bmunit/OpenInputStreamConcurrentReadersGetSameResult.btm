@@ -1,0 +1,21 @@
+RULE first read
+CLASS AbstractJointedIOTest$OpenInputStreamWithTimeoutTask
+METHOD run
+AT ENTRY
+IF TRUE
+DO
+    debug(">>>wait for service enter second read");
+    waitFor("second read");
+    debug("<<<proceed with first read");
+ENDRULE
+
+RULE second read
+CLASS AbstractJointedIOTest$OpenInputStreamTask
+METHOD run
+AT EXIT
+IF TRUE
+DO
+    debug("<<<signalling first read");
+    signalWake("second read", true);
+    debug("<<<signalled first read");
+ENDRULE

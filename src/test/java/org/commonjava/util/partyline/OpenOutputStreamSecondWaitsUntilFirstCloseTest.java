@@ -15,7 +15,6 @@
  */
 package org.commonjava.util.partyline;
 
-import org.apache.commons.io.IOUtils;
 import org.jboss.byteman.contrib.bmunit.BMScript;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
 import org.junit.Rule;
@@ -24,9 +23,6 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -38,8 +34,8 @@ import static org.junit.Assert.assertThat;
 
 @RunWith( org.jboss.byteman.contrib.bmunit.BMUnitRunner.class )
 @BMUnitConfig( loadDirectory = "target/test-classes/bmunit", debug = true )
-public class TwoConcurrentReadsTest
-        extends AbstractBytemanTest
+public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
+        extends AbstractJointedIOTest
 {
     private final ExecutorService testPool = Executors.newFixedThreadPool( 2 );
 
@@ -47,33 +43,31 @@ public class TwoConcurrentReadsTest
 
     private final JoinableFileManager fileManager = new JoinableFileManager();
 
-    private void writeFile( File file, String content )
-            throws IOException
-    {
-        final OutputStream out = new FileOutputStream( file );
-        IOUtils.write( content, out );
-        out.close();
-    }
+    @Rule
+    public TemporaryFolder temp = new TemporaryFolder();
 
     @Test
-    @BMScript( "TryToBothRead.btm" )
-    public void run()
+    @BMScript( "OpenOutputStream_SecondWaitsUntilFirstCloses.btm" )
+    public void openOutputStream_SecondWaitsUntilFirstCloses()
             throws Exception
     {
-        final String content = "This is a bmunit test";
-        final File file = temp.newFile( "file_both_read.txt" );
-        writeFile( file, content );
-        final Future<String> readingFuture1 =
-                testPool.submit( (Callable<String>) new ReadTask( fileManager, content, file, latch ) );
-        final Future<String> readingFuture2 =
-                testPool.submit( (Callable<String>) new ReadTask( fileManager, content, file, latch ) );
+        final File f = temp.newFile();
+
+        final String first = "first";
+        final String second = "second";
+
+        final Future<String> firstWriting =
+                testPool.submit( (Callable<String>) new OpenOutputStreamTask( fileManager, first, f, latch, 10 ) );
+        final Future<String> secondWriting =
+                testPool.submit( (Callable<String>) new OpenOutputStreamTask( fileManager, second, f, latch ) );
 
         latchWait( latch );
 
-        final String readingResult1 = readingFuture1.get();
-        assertThat( readingResult1, equalTo( content ) );
-        final String readingResult2 = readingFuture2.get();
-        assertThat( readingResult2, equalTo( content ) );
+        long fistTimestamp = Long.valueOf( firstWriting.get() );
+        long secondTimestamp = Long.valueOf( secondWriting.get() );
+        assertThat( first + " completed at: " + fistTimestamp + "\n" + second + " completed at: " + secondTimestamp
+                            + "\nFirst should complete before second.", fistTimestamp < secondTimestamp,
+                    equalTo( true ) );
     }
 
 }

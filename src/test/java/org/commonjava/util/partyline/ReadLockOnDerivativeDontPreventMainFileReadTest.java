@@ -15,7 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
-import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.FileUtils;
 import org.jboss.byteman.contrib.bmunit.BMScript;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
 import org.junit.Rule;
@@ -24,9 +24,6 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -38,8 +35,8 @@ import static org.junit.Assert.assertThat;
 
 @RunWith( org.jboss.byteman.contrib.bmunit.BMUnitRunner.class )
 @BMUnitConfig( loadDirectory = "target/test-classes/bmunit", debug = true )
-public class TwoConcurrentReadsTest
-        extends AbstractBytemanTest
+public class ReadLockOnDerivativeDontPreventMainFileReadTest
+        extends AbstractJointedIOTest
 {
     private final ExecutorService testPool = Executors.newFixedThreadPool( 2 );
 
@@ -47,33 +44,33 @@ public class TwoConcurrentReadsTest
 
     private final JoinableFileManager fileManager = new JoinableFileManager();
 
-    private void writeFile( File file, String content )
-            throws IOException
-    {
-        final OutputStream out = new FileOutputStream( file );
-        IOUtils.write( content, out );
-        out.close();
-    }
+    @Rule
+    public TemporaryFolder temp = new TemporaryFolder();
 
     @Test
-    @BMScript( "TryToBothRead.btm" )
-    public void run()
+    @BMScript( "ReadLockOnDerivativeSiblingFile_DontPreventMainFileRead.btm" )
+    public void readLockOnDerivativeSiblingFile_DontPreventMainFileRead()
             throws Exception
     {
-        final String content = "This is a bmunit test";
-        final File file = temp.newFile( "file_both_read.txt" );
-        writeFile( file, content );
-        final Future<String> readingFuture1 =
-                testPool.submit( (Callable<String>) new ReadTask( fileManager, content, file, latch ) );
-        final Future<String> readingFuture2 =
-                testPool.submit( (Callable<String>) new ReadTask( fileManager, content, file, latch ) );
+        final String mContent = "main";
+        final String dContent = "derivative";
+
+        final File d = temp.newFolder();
+        final File main = new File( d, "org/foo/bar/1/bar-1.pom" );
+        final File derivative = new File( d, "org/foo/bar/1/bar-1.pom.sha1" );
+
+        FileUtils.write( main, mContent );
+        FileUtils.write( derivative, dContent );
+
+        final Future<String> derivativeReading = testPool.submit(
+                (Callable<String>) new OpenInputStreamTask( fileManager, dContent, derivative, latch ) );
+        final Future<String> mainReading =
+                testPool.submit( (Callable<String>) new OpenInputStreamTask( fileManager, mContent, main, latch ) );
 
         latchWait( latch );
 
-        final String readingResult1 = readingFuture1.get();
-        assertThat( readingResult1, equalTo( content ) );
-        final String readingResult2 = readingFuture2.get();
-        assertThat( readingResult2, equalTo( content ) );
+        final String mainStream = mainReading.get();
+        assertThat( mainStream, equalTo( mContent ) );
     }
 
 }
