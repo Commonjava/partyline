@@ -270,7 +270,7 @@ final class FileTree
                         {
                             return operation.execute( opLock );
                         }
-                        catch ( IOException e )
+                        catch ( IOException | RuntimeException e )
                         {
                             // we just locked this, and the call failed...reverse the lock operation.
                             // NOTE: This will CLEAR all locks, which is what we want since there was no FileEntry before.
@@ -291,7 +291,7 @@ final class FileTree
                                 {
                                     return operation.execute( opLock );
                                 }
-                                catch ( IOException e )
+                                catch ( IOException | RuntimeException e )
                                 {
                                     // we just locked this, and the call failed...reverse the lock operation.
                                     entry.lock.unlock( ownerName );
