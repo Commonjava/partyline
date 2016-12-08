@@ -45,7 +45,7 @@ public class FileTreeTest
     {
         FileTree root = new FileTree();
         File child = createStructure( "child.txt", true );
-        JoinableFile jf = root.setOrJoinFile( child, null, false, -1, TimeUnit.MILLISECONDS );
+        JoinableFile jf = root.setOrJoinFile( child, null, false, -1, TimeUnit.MILLISECONDS, (result)->result );
 //        JoinableFile jf = new JoinableFile( child, false );
 //        root.add( jf );
 

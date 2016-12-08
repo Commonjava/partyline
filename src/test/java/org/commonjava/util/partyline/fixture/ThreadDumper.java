@@ -123,7 +123,14 @@ public final class ThreadDumper
                     {
                         System.out.printf( "Test timeout %d %s expired!\n", timeout, units.name() );
                         dumpThreads();
-                        fail( String.format( "Test timed out after %d %s", timeout, units ) );
+                        StackTraceElement[] stackTrace = t.getStackTrace();
+                        Exception currThreadException = new TestTimedOutException(timeout, units);
+                        if (stackTrace != null) {
+                            currThreadException.setStackTrace(stackTrace);
+                            t.interrupt();
+                        }
+
+                        throw currThreadException;
                     }
                 }
 

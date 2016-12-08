@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import static org.commonjava.util.partyline.LockLevel.read;
@@ -122,13 +123,13 @@ final class FileTree
                 {
                     //            synchronized ( entry )
                     //            {
-                    logger.trace( "Unlocking {}", f );
+                    logger.trace( "Unlocking {} (owner: {})", f, ownerName );
                     if ( entry.lock.unlock( ownerName ) )
                     {
                         logger.trace( "Unlocked; clearing resources associated with lock" );
                         if ( entry.file != null )
                         {
-                            logger.trace( "Closing file..." );
+                            logger.trace( "{} Closing file...", ownerName );
                             IOUtils.closeQuietly( entry.file );
                             entry.file = null;
                         }
@@ -142,13 +143,13 @@ final class FileTree
                     }
                     else
                     {
-                        logger.trace( "Unlock request failed: Remaining locks:\n\n{}", entry.lock.getLockInfo() );
+                        logger.trace( "{} Unlock request failed: Remaining locks:\n\n{}", ownerName, entry.lock.getLockInfo() );
                     }
                     //            }
                 }
                 else
                 {
-                    logger.trace( "{} not locked", f );
+                    logger.trace( "{} not locked by {}", f, ownerName );
                 }
 
                 opLock.signal();
@@ -325,8 +326,8 @@ final class FileTree
         } );
     }
 
-    JoinableFile setOrJoinFile( File realFile, StreamCallbacks callbacks, boolean doOutput, long timeout,
-                                TimeUnit unit )
+    <T> T setOrJoinFile( File realFile, StreamCallbacks callbacks, boolean doOutput, long timeout,
+                                TimeUnit unit, JoinFileOperation<T> function )
             throws IOException, InterruptedException
     {
         long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
@@ -334,12 +335,9 @@ final class FileTree
         Logger logger = LoggerFactory.getLogger( getClass() );
         while ( end < 1 || System.currentTimeMillis() < end )
         {
-            JoinableFile result = tryLock( realFile, null, "Open File for " + ( doOutput ? "output" : "input" ),
+            T result = tryLock( realFile, null, "Open File for " + ( doOutput ? "output" : "input" ),
                                            doOutput ? LockLevel.write : read, WAIT_TIMEOUT, unit, ( opLock ) -> {
                         FileEntry entry = entryMap.get( realFile.getAbsolutePath() );
-
-                        //                synchronized ( entry )
-                        //                {
                         if ( entry.file != null )
                         {
                             if ( doOutput )
@@ -366,7 +364,7 @@ final class FileTree
                             else
                             {
                                 logger.trace( "Got joinable file" );
-                                return entry.file;
+                                return function.execute( entry.file );
                             }
                         }
                         else
@@ -377,9 +375,8 @@ final class FileTree
                                                                                                  realFile ), doOutput );
 
                             entry.file = joinableFile;
-                            return joinableFile;
+                            return function.execute( joinableFile );
                         }
-                        //                }
 
                         return null;
                     } );
@@ -391,7 +388,7 @@ final class FileTree
         }
 
         logger.trace( "Failed to lock file for {}", doOutput ? "writing" : "reading" );
-        return null;
+        return function.execute( null );
     }
 
     boolean delete( File file, long timeout, TimeUnit unit )
@@ -610,9 +607,17 @@ final class FileTree
         }
     }
 
+    @FunctionalInterface
     private interface LockedOperation<T>
     {
         T execute( OperationLock opLock )
                 throws InterruptedException, IOException;
+    }
+
+    @FunctionalInterface
+    interface JoinFileOperation<T>
+    {
+        T execute( JoinableFile file )
+                throws IOException;
     }
 }

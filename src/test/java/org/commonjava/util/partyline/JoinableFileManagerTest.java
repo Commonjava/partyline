@@ -119,14 +119,18 @@ public class JoinableFileManagerTest
             throws Exception
     {
         final File f = temp.newFile();
+        Thread.currentThread().setName( "output 1" );
         final OutputStream stream = mgr.openOutputStream( f );
 
+        Thread.currentThread().setName( "output 2" );
         OutputStream s2 = mgr.openOutputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, nullValue() );
 
+        Thread.currentThread().setName( "output 1" );
         stream.close();
 
+        Thread.currentThread().setName( "output 3" );
         s2 = mgr.openOutputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, notNullValue() );
