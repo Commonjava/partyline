@@ -29,8 +29,7 @@ import java.util.TreeMap;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -49,7 +48,7 @@ final class FileTree
 
     private ConcurrentHashMap<String, FileEntry> entryMap = new ConcurrentHashMap<String, FileEntry>();
 
-    private Map<String, OperationLock> operationLocks = new WeakHashMap<>();
+    private Map<String, FileOperationLock> operationLocks = new WeakHashMap<>();
 
     void forAll( String operationName, Consumer<JoinableFile> fileConsumer )
     {
@@ -62,13 +61,17 @@ final class FileTree
         } );
     }
 
-    void forFilesOwnedBy( long ownerId, String operationName, Consumer<JoinableFile> fileConsumer )
+    void forFilesOwnedBy( long ownerId, String operationName, Function<JoinableFile, Boolean> fileConsumer )
     {
         TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
+        AtomicBoolean continueProcessing = new AtomicBoolean( true );
         sorted.forEach( ( key, entry ) -> {
-            if ( entry.file != null && entry.lock.getThreadId() == ownerId )
+            if ( continueProcessing.get() && entry.file != null && entry.lock.getThreadId() == ownerId )
             {
-                fileConsumer.accept( entry.file );
+                if ( !fileConsumer.apply( entry.file ) )
+                {
+                    continueProcessing.set( false );
+                }
             }
         } );
     }
@@ -241,7 +244,7 @@ final class FileTree
     }
 
     private <T> T tryLock( File f, String ownerName, String label, LockLevel lockLevel, long timeout, TimeUnit unit,
-                           LockedOperation<T> operation )
+                           LockedFileOperation<T> operation )
             throws InterruptedException, IOException
     {
         return withOpLock( f, ( opLock ) -> {
@@ -372,7 +375,7 @@ final class FileTree
                             logger.trace( "No pre-existing open file; opening" );
                             JoinableFile joinableFile = new JoinableFile( realFile, entry.lock,
                                                                           new FileTreeCallbacks( callbacks, entry,
-                                                                                                 realFile ), doOutput );
+                                                                                                 realFile ), doOutput, opLock );
 
                             entry.file = joinableFile;
                             return function.execute( joinableFile );
@@ -450,31 +453,22 @@ final class FileTree
         return null;
     }
 
-    private <T> T withOpLock( File f, LockedOperation<T> op )
+    private <T> T withOpLock( File f, LockedFileOperation<T> op )
             throws IOException, InterruptedException
     {
         String path = f.getAbsolutePath();
-        OperationLock opLock;
+        FileOperationLock opLock;
         synchronized ( operationLocks )
         {
             opLock = operationLocks.get( path );
             if ( opLock == null )
             {
-                opLock = new OperationLock();
+                opLock = new FileOperationLock();
                 operationLocks.put( path, opLock );
             }
         }
 
-        try
-        {
-            opLock.lock();
-
-            return op.execute( opLock );
-        }
-        finally
-        {
-            opLock.unlock();
-        }
+        return opLock.lockAnd( op );
     }
 
     private static final class FileEntry
@@ -575,46 +569,7 @@ final class FileTree
         }
     }
 
-    /**
-     * Locks a single operation on a File in this FileTree, so competing operations ON THAT FILE have to wait, but
-     * operations on other files can continue.
-     */
-    private static final class OperationLock
-    {
-        private ReentrantLock lock = new ReentrantLock();
-
-        private Condition changed = lock.newCondition();
-
-        public void lock()
-        {
-            lock.lock();
-        }
-
-        public void unlock()
-        {
-            lock.unlock();
-        }
-
-        public void await( long timeoutMs )
-                throws InterruptedException
-        {
-            changed.await( timeoutMs, TimeUnit.MILLISECONDS );
-        }
-
-        public void signal()
-        {
-            changed.signal();
-        }
-    }
-
-    @FunctionalInterface
-    private interface LockedOperation<T>
-    {
-        T execute( OperationLock opLock )
-                throws InterruptedException, IOException;
-    }
-
-    @FunctionalInterface
+     @FunctionalInterface
     interface JoinFileOperation<T>
     {
         T execute( JoinableFile file )

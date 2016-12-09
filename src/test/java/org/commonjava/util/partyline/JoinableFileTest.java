@@ -17,6 +17,7 @@ package org.commonjava.util.partyline;
 
 import static org.commonjava.util.partyline.LockLevel.read;
 import static org.commonjava.util.partyline.LockLevel.write;
+import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
@@ -32,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import ch.qos.logback.core.util.FileSize;
 import org.apache.commons.io.FileUtils;
@@ -39,13 +41,18 @@ import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
 import org.junit.Ignore;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class JoinableFileTest
     extends AbstractJointedIOTest
 {
+
+    @Rule
+    public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
     @Test
     public void readExistingFile()
@@ -83,7 +90,7 @@ public class JoinableFileTest
     }
 
     private void assertReadOfExistingFileOfSize( String s )
-            throws IOException
+            throws IOException, InterruptedException
     {
         File f = temp.newFile( "read-target.txt" );
         int sz = (int) FileSize.valueOf( "11mb" ).getSize();
@@ -151,7 +158,7 @@ public class JoinableFileTest
 
     @Test( expected = IOException.class )
     public void lockDirectoryJoinFails()
-            throws IOException
+            throws IOException, InterruptedException
     {
         File dir = temp.newFolder();
         dir.mkdirs();

@@ -17,23 +17,33 @@ package org.commonjava.util.partyline;
 
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
+import org.jboss.byteman.contrib.bmunit.BMScript;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
 import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
+import org.jboss.byteman.rule.exception.TypeException;
+import org.jboss.byteman.rule.helper.Helper;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-@RunWith( BMUnitRunner.class )
-@BMUnitConfig( debug = true )
+import static org.commonjava.util.partyline.UtilThreads.deleter;
+import static org.commonjava.util.partyline.UtilThreads.reader;
+import static org.commonjava.util.partyline.UtilThreads.writer;
+import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
+
 public class DeleteLockReleaseWithConcurrentReadsOfMissingFileTest
         extends AbstractJointedIOTest
 {
+    @Rule
+    public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
+
     /**
      * Test that locks for deletion and then checks that locks associated with mutiple read FAILURES clear correctly.
      * This will setup an intricate script of events for a single file, where:
@@ -44,122 +54,31 @@ public class DeleteLockReleaseWithConcurrentReadsOfMissingFileTest
      * </ol>
      * @throws Exception
      */
-    /*@formatter:off*/
-    @BMRules( rules = {
-            // setup the rendezvous for all threads, which will mean everything else waits for delete to exit.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
-                     targetMethod = "<init>",
-                     targetLocation = "ENTRY",
-                     action = "createRendezvous(\"deleted\", 5)" ),
-
-            // setup the pause for openOutputStream, which rendezvous with openInputStream AND tryDelete, then
-            // waits for one openInputStream call to exit
-            @BMRule( name = "openOutputStream start", targetClass = "JoinableFileManager",
-                     targetMethod = "openOutputStream",
-                     targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for DELETE.\"); "
-                             + "rendezvous(\"deleted\"); "
-                             + "debug( \"Waiting for READ\"); "
-                             + "waitFor(\"reading\"); "
-                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
-
-            // setup the rendezvous to wait for tryDelete to exit
-            @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
-                     targetMethod = "openInputStream",
-                     targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for DELETE to finish.\"); "
-                             + "rendezvous(\"deleted\"); "
-                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
-
-            // setup the trigger to signal openOutputStream when the first openInputStream exits
-            @BMRule( name = "openInputStream end", targetClass = "JoinableFileManager",
-                     targetMethod = "openInputStream",
-                     targetLocation = "EXCEPTION EXIT",
-                     action = "debug(\"Signal READ.\"); "
-                             + "signalWake(\"reading\"); "
-                             + "debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
-
-            // setup the trigger to signal all other threads to resume once tryDelete exits
-            @BMRule( name = "tryDelete end", targetClass = "JoinableFileManager",
-                     targetMethod = "tryDelete",
-                     targetLocation = "EXIT",
-                     action = "debug(\"Signal DELETE.\"); "
-                             + "rendezvous(\"deleted\"); "
-                             + "debug(Thread.currentThread().getName() + \": delete() done.\")" ) } )
-    /*@formatter:on*/
     @Test
-    @BMUnitConfig( debug = true )
     public void run()
             throws Exception
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 5 );
         final File f = temp.newFile( "child.txt" );
-        //        FileUtils.write( f, "test data" );
 
-        final CountDownLatch latch = new CountDownLatch( 5 );
+        final CountDownLatch masterLatch = new CountDownLatch( 5 );
+        CountDownLatch beginReadLatch = new CountDownLatch( 3 );
+        CountDownLatch endReadLatch = new CountDownLatch( 3 );
+        CountDownLatch endDeleteLatch = new CountDownLatch( 1 );
+
         final JoinableFileManager manager = new JoinableFileManager();
-        final long start = System.currentTimeMillis();
 
-        execs.execute( () -> {
-            Thread.currentThread().setName( "openOutputStream" );
-
-            try (OutputStream o = manager.openOutputStream( f ))
-            {
-                o.write( "Test data".getBytes() );
-            }
-            catch ( Exception e )
-            {
-                e.printStackTrace();
-            }
-            latch.countDown();
-            System.out.println(
-                    String.format( "[%s] Count down after write thread: %s", Thread.currentThread().getName(),
-                                   latch.getCount() ) );
-        } );
+        execs.execute( writer( manager, f, masterLatch, endReadLatch ) );
 
         for ( int i = 0; i < 3; i++ )
         {
             final int k = i;
-            execs.execute( () -> {
-                Thread.currentThread().setName( "openInputStream-" + k );
-                try (InputStream s = manager.openInputStream( f ))
-                {
-                    System.out.println( s );
-                }
-                catch ( Exception e )
-                {
-                    e.printStackTrace();
-                }
-                finally
-                {
-                    latch.countDown();
-                    System.out.println(
-                            String.format( "[%s] Count down after %s read thread: %s", Thread.currentThread().getName(),
-                                           k, latch.getCount() ) );
-                }
-            } );
+            execs.execute( reader( k, manager, f, masterLatch, endReadLatch, beginReadLatch, endDeleteLatch ) );
         }
 
-        execs.execute( () -> {
-            Thread.currentThread().setName( "delete" );
-            try
-            {
-                manager.tryDelete( f );
-            }
-            catch ( Exception e )
-            {
-                e.printStackTrace();
-            }
-            finally
-            {
-                latch.countDown();
-                System.out.println(
-                        String.format( "[%s] Count down after delete thread: %s", Thread.currentThread().getName(),
-                                       latch.getCount() ) );
-            }
-        } );
+        execs.execute( deleter( manager, f, masterLatch, endDeleteLatch ) );
 
-        latch.await();
+        masterLatch.await();
     }
 
 }

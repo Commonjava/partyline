@@ -44,11 +44,8 @@ import static org.junit.Assert.assertThat;
 @RunWith( org.jboss.byteman.contrib.bmunit.BMUnitRunner.class )
 @BMUnitConfig( loadDirectory = "target/test-classes/bmunit", debug = true )
 public class TwoConcurrentReadsTest
-        extends AbstractJointedIOTest
+        extends AbstractBytemanTest
 {
-    @Rule
-    public TemporaryFolder temp = new TemporaryFolder();
-
     private final ExecutorService testPool = Executors.newFixedThreadPool( 2 );
 
     private final CountDownLatch latch = new CountDownLatch( 2 );

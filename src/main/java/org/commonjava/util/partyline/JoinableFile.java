@@ -69,6 +69,8 @@ public final class JoinableFile
 
     private final LockOwner owner;
 
+    private final FileOperationLock opLock;
+
     /**
      * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
      * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
@@ -81,7 +83,7 @@ public final class JoinableFile
     JoinableFile( final File target, final LockOwner owner, boolean doOutput )
             throws IOException
     {
-        this( target, owner, null, doOutput );
+        this( target, owner, null, doOutput, new FileOperationLock() );
     }
 
     /**
@@ -95,12 +97,13 @@ public final class JoinableFile
      * If callbacks are available, use these to signal to a manager instance when the stream is flushed and when
      * the last joined input stream (or this stream, if there are none) closes.
      */
-    JoinableFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput )
+    JoinableFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput, FileOperationLock opLock )
             throws IOException
     {
         this.owner = owner;
         this.path = target.getPath();
         this.callbacks = callbacks;
+        this.opLock = opLock;
 
         target.getParentFile().mkdirs();
 
@@ -166,25 +169,27 @@ public final class JoinableFile
      * Return an {@link InputStream} instance that reads from the same {@link RandomAccessFile} that backs this output stream, and is tuned to listen
      * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
      */
-    synchronized InputStream joinStream()
-            throws IOException
+    InputStream joinStream()
+            throws IOException, InterruptedException
     {
-        if ( !joinable )
-        {
-            // if the channel is null, this is a directory lock.
-            throw new IOException( "JoinableFile is not accepting join() operations. (" +
-                                           ( channel == null ?
-                                                   "It's a locked directory" :
-                                                   "It's in the process of closing." ) + ")" );
-        }
+        return opLock.lockAnd((lock)->{
+            if ( !joinable )
+            {
+                // if the channel is null, this is a directory lock.
+                throw new IOException( "JoinableFile is not accepting join() operations. (" +
+                                               ( channel == null ?
+                                                       "It's a locked directory" :
+                                                       "It's in the process of closing." ) + ")" );
+            }
 
-        JoinInputStream result = new JoinInputStream( inputs.size() );
-        inputs.put( result.hashCode(), result );
+            JoinInputStream result = new JoinInputStream( inputs.size() );
+            inputs.put( result.hashCode(), result );
 
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.debug( "JOIN: {} (new joint count: {})", Thread.currentThread().getName(), inputs.size() );
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.debug( "JOIN: {} (new joint count: {})", Thread.currentThread().getName(), inputs.size() );
 
-        return result;
+            return result;
+        });
     }
 
     private void checkWritable()
@@ -205,14 +210,18 @@ public final class JoinableFile
         return channel == null || output != null;
     }
 
-    synchronized void forceClose()
+    void forceClose()
+            throws IOException, InterruptedException
     {
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.trace( "forceClose() called, closing all open inputs..." );
-        new HashMap<>(inputs).forEach( ( k, stream ) -> IOUtils.closeQuietly( stream ) );
+        opLock.lockAnd( (lock)->{
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.trace( "forceClose() called, closing all open inputs..." );
+            new HashMap<>(inputs).forEach( ( k, stream ) -> IOUtils.closeQuietly( stream ) );
 
-        logger.trace( "Closing the rest" );
-        IOUtils.closeQuietly( this );
+            logger.trace( "Closing the rest" );
+            IOUtils.closeQuietly( this );
+            return null;
+        } );
     }
 
     /**
@@ -221,36 +230,45 @@ public final class JoinableFile
      * to 0.
      */
     @Override
-    public synchronized void close()
+    public void close()
             throws IOException
     {
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.trace( "close() called, marking as closed..." );
-
-        closed = true;
-
-        if ( output != null && !output.closed )
+        try
         {
-            logger.trace( "Closing output" );
-            output.close();
+            opLock.lockAnd( (lock)->{
+                Logger logger = LoggerFactory.getLogger( getClass() );
+                logger.trace( "close() called, marking as closed..." );
+
+                closed = true;
+
+                if ( output != null && !output.closed )
+                {
+                    logger.trace( "Closing output" );
+                    output.close();
+                }
+
+                logger.trace( "joint count is: {}.", inputs.size() );
+                if ( channel == null || inputs.isEmpty() )
+                {
+                    logger.trace( "Joints closed, really closing..." );
+                    reallyClose();
+                    owner.clearLocks();
+                }
+
+                return null;
+            } );
         }
-
-        logger.trace( "joint count is: {}.", inputs.size() );
-        if ( channel == null || inputs.isEmpty() )
+        catch ( InterruptedException e )
         {
-            logger.trace( "Joints closed, really closing..." );
-            reallyClose();
-        }
-        else
-        {
-            owner.clearLocks();
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.warn( "Interrupted while closing: {}", getPath() );
         }
     }
 
     /**
      * After all associated {@link JoinInputStream}s are done, close down this stream's backing storage.
      */
-    private synchronized void reallyClose()
+    private void reallyClose()
             throws IOException
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
@@ -317,24 +335,36 @@ public final class JoinableFile
      * Callback for use in {@link JoinInputStream} to notify this stream to decrement its count of associated input streams.
      * @throws IOException
      */
-    private synchronized void jointClosed( JoinInputStream input, String originalThreadName )
+    private void jointClosed( JoinInputStream input, String originalThreadName )
             throws IOException
     {
-        inputs.remove( input.hashCode() );
+        try
+        {
+            opLock.lockAnd( (lock)->{
+                inputs.remove( input.hashCode() );
 
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
-        if ( inputs.isEmpty() )
-        {
-            if ( output == null || output.closed )
-            {
-                closed = true;
-                reallyClose();
-            }
+                Logger logger = LoggerFactory.getLogger( getClass() );
+                logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
+                if ( inputs.isEmpty() )
+                {
+                    if ( output == null || output.closed )
+                    {
+                        closed = true;
+                        reallyClose();
+                    }
+                }
+                else
+                {
+                    owner.unlock( originalThreadName );
+                }
+
+                return null;
+            } );
         }
-        else
+        catch ( InterruptedException e )
         {
-            owner.unlock( originalThreadName );
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.warn( "Interrupted while closing reader joint of: {}", getPath() );
         }
     }
 
