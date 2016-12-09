@@ -16,7 +16,6 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
@@ -25,15 +24,16 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static org.commonjava.util.partyline.UtilThreads.reader;
+import static org.commonjava.util.partyline.UtilThreads.writer;
+
 @RunWith( BMUnitRunner.class )
 public class ConcurrentReadRuntimeErrorsClearLocksTest
-        extends AbstractJointedIOTest
+        extends AbstractBytemanTest
 {
     /**
      * Test that locks for mutiple reads clear correctly. This will setup an script of events for
@@ -46,38 +46,6 @@ public class ConcurrentReadRuntimeErrorsClearLocksTest
      */
     /*@formatter:off*/
     @BMRules( rules = {
-            // setup the rendezvous for all threads, which will mean everything waits until all threads are started.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
-                     targetMethod = "<init>",
-                     targetLocation = "ENTRY",
-                     action = "createRendezvous(\"begin\", 4)" ),
-
-            // setup the pause for openOutputStream, which rendezvous with openInputStream calls, then
-            // waits for one openInputStream call to exit
-            @BMRule( name = "openOutputStream start", targetClass = "JoinableFileManager",
-                     targetMethod = "openOutputStream",
-                     targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for READ to start.\"); "
-                             + "rendezvous(\"begin\"); "
-                             + "waitFor(\"reading\"); "
-                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
-
-            // setup the rendezvous to wait for all threads to be ready before proceeding
-            @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
-                     targetMethod = "openInputStream",
-                     targetLocation = "ENTRY",
-                     action = "debug(\"Waiting for ALL to start.\"); "
-                             + "rendezvous(\"begin\"); "
-                             + "debug(Thread.currentThread().getName() + \": openInputStream() thread proceeding.\")" ),
-
-            // setup the trigger to signal openOutputStream when the first openInputStream exits
-            @BMRule( name = "openInputStream end", targetClass = "JoinableFileManager",
-                     targetMethod = "openInputStream",
-                     targetLocation = "EXCEPTION EXIT",
-                     action = "debug(\"Signal READ.\"); "
-                             + "signalWake(\"reading\"); "
-                             + "debug(Thread.currentThread().getName() + \": openInputStream() done.\")" ),
-
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
             @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "<init>",
                      targetLocation = "ENTRY",
@@ -94,48 +62,20 @@ public class ConcurrentReadRuntimeErrorsClearLocksTest
         final File f = temp.newFile( "child.txt" );
         FileUtils.write( f, "test data" );
 
-        final CountDownLatch latch = new CountDownLatch( 4 );
+        final CountDownLatch latch = new CountDownLatch( 3 );
+        final CountDownLatch readBeginLatch = new CountDownLatch( 3 );
+        final CountDownLatch readEndLatch = new CountDownLatch( 3 );
+
         final JoinableFileManager manager = new JoinableFileManager();
+        manager.startReporting( 5000, 5000 );
         final long start = System.currentTimeMillis();
 
-        execs.execute( () -> {
-            Thread.currentThread().setName( "openOutputStream" );
-
-            try (OutputStream o = manager.openOutputStream( f ))
-            {
-                o.write( "Test data".getBytes() );
-            }
-            catch ( Exception e )
-            {
-                e.printStackTrace();
-            }
-            latch.countDown();
-            System.out.println(
-                    String.format( "[%s] Count down after write thread: %s", Thread.currentThread().getName(),
-                                   latch.getCount() ) );
-        } );
+        execs.execute( writer( manager, f, latch, readEndLatch ) );
 
         for ( int i = 0; i < 3; i++ )
         {
             final int k = i;
-            execs.execute( () -> {
-                Thread.currentThread().setName( "openInputStream-" + k );
-                try (InputStream s = manager.openInputStream( f ))
-                {
-                    System.out.println( IOUtils.toString( s ) );
-                }
-                catch ( Exception e )
-                {
-                    e.printStackTrace();
-                }
-                finally
-                {
-                    latch.countDown();
-                    System.out.println(
-                            String.format( "[%s] Count down after %s read thread: %s", Thread.currentThread().getName(),
-                                           k, latch.getCount() ) );
-                }
-            } );
+            execs.execute( reader(k, manager, f, latch, readBeginLatch, readEndLatch, null) );
         }
 
         latch.await();

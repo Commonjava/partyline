@@ -20,7 +20,9 @@ import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
 import org.junit.Ignore;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +31,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
+import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
@@ -40,6 +44,9 @@ public class JoinableFileManagerTest
 {
 
     private static final long SHORT_TIMEOUT = 10;
+
+    @Rule
+    public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
     private final JoinableFileManager mgr = new JoinableFileManager();
 
@@ -119,14 +126,18 @@ public class JoinableFileManagerTest
             throws Exception
     {
         final File f = temp.newFile();
+        Thread.currentThread().setName( "output 1" );
         final OutputStream stream = mgr.openOutputStream( f );
 
+        Thread.currentThread().setName( "output 2" );
         OutputStream s2 = mgr.openOutputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, nullValue() );
 
+        Thread.currentThread().setName( "output 1" );
         stream.close();
 
+        Thread.currentThread().setName( "output 3" );
         s2 = mgr.openOutputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, notNullValue() );

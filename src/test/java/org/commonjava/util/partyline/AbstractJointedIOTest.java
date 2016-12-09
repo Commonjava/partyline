@@ -18,6 +18,7 @@ package org.commonjava.util.partyline;
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
 import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Assert;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
@@ -48,9 +49,6 @@ public abstract class AbstractJointedIOTest
 
     @Rule
     public TestName name = new TestName();
-
-    @Rule
-    public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
     protected int readers = 0;
 

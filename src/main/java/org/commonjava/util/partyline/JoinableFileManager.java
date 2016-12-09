@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -89,24 +90,42 @@ public class JoinableFileManager
               .append( " (ID: " )
               .append( owner.getThreadId() )
               .append( ")" )
-              .append( "\nLock Info:\n  ")
+              .append( "\nLock Info:\n  " )
               .append( owner.getLockInfo() )
               .append( "\n\nLock type: " )
               .append( jf.isWriteLocked() ? "WRITE" : "READ" )
               .append( "\nLocked at:\n" );
 
-            for ( final StackTraceElement elt : owner.getLockOrigin() )
+            StackTraceElement[] lockOrigin = owner.getLockOrigin();
+            if ( lockOrigin != null )
             {
-                sb.append( "\n  " ).append( elt );
+                for ( final StackTraceElement elt : lockOrigin )
+                {
+                    sb.append( "\n  " ).append( elt );
+                }
             }
 
             sb.append( "\n\n" );
 
             logger.warn( sb.toString() );
 
-            jf.forceClose();
+            try
+            {
+                jf.forceClose();
+            }
+            catch ( IOException e )
+            {
+                logger.warn( String.format( "Failed to force-close: %s. Reason: %s", jf.getPath(), e.getMessage() ), e );
+            }
+            catch ( InterruptedException e )
+            {
+                logger.warn( "Interrupted while cleaning up resources owned by thread: {}", Thread.currentThread().getName() );
+                return false;
+            }
 
             logger.trace( "After cleanup, lock info is: {}", jf.getLockOwner().getLockInfo() );
+
+            return true;
         } );
     }
 
@@ -150,29 +169,16 @@ public class JoinableFileManager
             }
             else
             {
-                final Thread t = ref.getThread();
-
-                if ( t == null )
-                {
-                    owner.append( "UNKNOWN OWNER; REF IS EMPTY." );
-                }
-                else
-                {
-                    owner.append( t.getName() );
-                    if ( !t.isAlive() )
-                    {
-                        owner.append( " (DEAD)" );
-                    }
-                }
+                owner.append( ref.getLockInfo() );
             }
 
             if ( jf.isWriteLocked() )
             {
-                owner.append( " (WRITE)" );
+                owner.append( " (JoinableFile locked as WRITE)" );
             }
             else
             {
-                owner.append( " (READ)" );
+                owner.append( " (JoinableFile locked as READ)" );
             }
 
             active.put( new File( jf.getPath() ), owner );
@@ -198,15 +204,15 @@ public class JoinableFileManager
     {
         logger.trace( ">>>OPEN OUTPUT: {} with timeout: {}", file, timeout );
 
-        JoinableFile result =
-                locks.setOrJoinFile( file, null, true, timeout, TimeUnit.MILLISECONDS );
+        return locks.setOrJoinFile( file, null, true, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
+            if ( result == null )
+            {
+                throw new IOException( "Could not open output stream to: " + file + " in " + timeout + "ms." );
+            }
 
-        if ( result == null )
-        {
-            throw new IOException( "Could not open output stream to: " + file + " in " + timeout + "ms." );
-        }
+            return result.getOutputStream();
+        } );
 
-        return result.getOutputStream();
     }
 
     public boolean tryDelete( File file )
@@ -244,15 +250,32 @@ public class JoinableFileManager
             throws IOException, InterruptedException
     {
         logger.trace( ">>>OPEN INPUT: {} with timeout: {}", file, timeout );
-        JoinableFile result =
-                locks.setOrJoinFile( file, null, false, timeout, TimeUnit.MILLISECONDS );
+        AtomicReference<InterruptedException> interrupt = new AtomicReference<>();
+        InputStream stream = locks.setOrJoinFile( file, null, false, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
+            if ( result == null )
+            {
+                throw new IOException( "Could not open input stream to: " + file + " in " + timeout + "ms." );
+            }
 
-        if ( result == null )
+            try
+            {
+                return result.joinStream();
+            }
+            catch ( InterruptedException e )
+            {
+                interrupt.set( e );
+            }
+
+            return null;
+        } );
+
+        InterruptedException ie = interrupt.get();
+        if ( ie != null )
         {
-            throw new IOException( "Could not open input stream to: " + file + " in " + timeout + "ms." );
+            throw ie;
         }
 
-        return result.joinStream();
+        return stream;
     }
 
     /**
@@ -336,7 +359,7 @@ public class JoinableFileManager
         while ( System.currentTimeMillis() < end )
         {
             LockLevel lockLevel = locks.getLockLevel( file );
-            if ( lockLevel == null  )
+            if ( lockLevel == null )
             {
                 result = true;
                 break;
@@ -348,7 +371,7 @@ public class JoinableFileManager
             }
 
             lockLevel = locks.getLockLevel( file );
-            if ( lockLevel == null  )
+            if ( lockLevel == null )
             {
                 result = true;
                 break;
@@ -377,7 +400,7 @@ public class JoinableFileManager
         while ( System.currentTimeMillis() < end )
         {
             LockLevel lockLevel = locks.getLockLevel( file );
-            if ( lockLevel != LockLevel.delete  )
+            if ( lockLevel != LockLevel.delete )
             {
                 result = true;
                 break;
@@ -389,7 +412,7 @@ public class JoinableFileManager
             }
 
             lockLevel = locks.getLockLevel( file );
-            if ( lockLevel != LockLevel.delete  )
+            if ( lockLevel != LockLevel.delete )
             {
                 result = true;
                 break;

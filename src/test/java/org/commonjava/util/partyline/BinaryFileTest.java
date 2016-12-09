@@ -63,7 +63,8 @@ public class BinaryFileTest {
     }
 
     @Test
-    public void shouldReadBinaryFile() throws IOException
+    public void shouldReadBinaryFile()
+            throws IOException, InterruptedException
     {
         List<String> failures = new ArrayList<>();
 
