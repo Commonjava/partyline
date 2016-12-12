@@ -15,30 +15,72 @@
  */
 package org.commonjava.util.partyline;
 
-import org.jboss.byteman.contrib.bmunit.BMScript;
+import org.commonjava.util.partyline.fixture.TimedFileWriter;
+import org.jboss.byteman.contrib.bmunit.BMRule;
+import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
+import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.File;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-@RunWith( org.jboss.byteman.contrib.bmunit.BMUnitRunner.class )
-@BMUnitConfig( loadDirectory = "target/test-classes/bmunit", debug = true )
+@RunWith( BMUnitRunner.class )
 public class JoinFileWriteTest
-        extends AbstractJointedIOTest
+        extends AbstractBytemanTest
 {
+    /**
+     * Test verifies JoinableFile read could be done before its write stream close
+     * without any delay, this setup an script of events for one single file, where:
+     * <ol>
+     *     <li>Simulate JoinableFile write process </li>
+     *     <li>Read should be proceeded before write stream close</li>
+     * </ol>
+     * @throws Exception
+     */
+    @BMRules( rules = {
+            // wait for read call to exit
+            @BMRule( name = "write close", targetClass = "JoinableFile",
+                     targetMethod = "close",
+                     targetLocation = "ENTRY",
+                     condition = "incrementCounter($0)==1",
+                     action = "debug(\">>>wait for service enter read.\");" + "waitFor(\"read\");"
+                             + "debug(\"<<<proceed with write close.\")" ),
 
+            // setup the trigger to signal write close when the read exits
+            @BMRule( name = "read", targetClass = "JoinableFile",
+                     targetMethod = "joinStream",
+                     targetLocation = "EXIT",
+                     action = "debug(\"<<<signalling write close.\"); " + "signalWake(\"read\", true);"
+                             + "debug(\"<<<signalled write close.\")" ) } )
     @Test
-    @BMScript( "JoinFileWrite.btm" )
-    public void joinFileWrite()
+    @BMUnitConfig( debug = true )
+    public void run()
             throws Exception
     {
+        final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFile stream = startTimedWrite( 0, latch );
-        startRead( 0, stream, latch );
+
+        final File file = temp.newFile();
+        String threadName = "writer" + writers++;
+
+        final JoinableFile stream =
+                new JoinableFile( file, new LockOwner( threadName, name.getMethodName(), LockLevel.write ), true );
+
+        execs.execute( () -> {
+            Thread.currentThread().setName( threadName );
+            new TimedFileWriter( stream, 0, latch ).run();
+        } );
+
+        execs.execute( () -> {
+            Thread.currentThread().setName( "reader" + readers++ );
+            new AsyncFileReader( 0, -1, -1, stream, latch ).run();
+        } );
 
         System.out.println( "Waiting for " + name.getMethodName() + " threads to complete." );
         latch.await();
     }
-
 }

@@ -17,19 +17,15 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.commonjava.util.partyline.fixture.TimedTask;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
@@ -118,25 +114,6 @@ public class JoinableFileManagerTest
         s2 = mgr.openOutputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, notNullValue() );
-    }
-
-    @Test
-    public void verifyReportingDaemonWorks()
-        throws Exception
-    {
-        final File f = temp.newFile();
-
-        final String first = "first";
-        final String second = "second";
-
-        mgr.startReporting( 0, 1000 );
-
-        final OpenOutputStreamTask secondRunnable = new OpenOutputStreamTask( mgr, second, f );
-        final Map<String, Long> timings =
-                testTimings( new TimedTask( first, new OpenOutputStreamTask( mgr, first, f, 6000 ) ) );
-
-        System.out.println( first + " completed at: " + timings.get( first ) );
-        System.out.println( second + " completed at: " + timings.get( second ) );
     }
 
     @Test

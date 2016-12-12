@@ -15,107 +15,119 @@
  */
 package org.commonjava.util.partyline;
 
-import org.jboss.byteman.contrib.bmunit.BMScript;
+import org.jboss.byteman.contrib.bmunit.BMRule;
+import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
-import org.junit.Rule;
+import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.util.concurrent.Callable;
+import java.io.OutputStream;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
-@RunWith( org.jboss.byteman.contrib.bmunit.BMUnitRunner.class )
-@BMUnitConfig( loadDirectory = "target/test-classes/bmunit", debug = true )
+@RunWith( BMUnitRunner.class )
 public class LockFileOpenOutputStreamWaitsForUnlockTest
-        extends AbstractJointedIOTest
+        extends AbstractBytemanTest
 {
-    private final ExecutorService testPool = Executors.newFixedThreadPool( 2 );
+    /**
+     * Simulate the condition after releasing the write-lock on a file, another writing on the file is able to be proceeded.
+     * this setup an script of events for one single file, where:
+     * <ol>
+     *     <li>Lock and then Unlock on a specific file</li>
+     *     <li>Then proceed the writing on this file</li>
+     * </ol>
+     * @throws Exception
+     */
+    @BMRules( rules = {
+            // wait for lockUnlock call to exit
+            @BMRule( name = "openOutputStream", targetClass = "JoinableFileManager",
+                     targetMethod = "openOutputStream",
+                     targetLocation = "ENTRY",
+                     condition = "$2==-1",
+                     action = "debug(\">>>wait for service enter lockUnlock.\");" + "waitFor(\"lockUnlock\");"
+                             + "debug(\"<<<proceed with openOutputStream.\")" ),
 
-    private final CountDownLatch latch = new CountDownLatch( 2 );
-
-    private final JoinableFileManager fileManager = new JoinableFileManager();
-
-    @Rule
-    public TemporaryFolder temp = new TemporaryFolder();
+            // setup the trigger to signal openOutputStream when the lockUnlock exits
+            @BMRule( name = "lockUnlock", targetClass = "JoinableFileManager",
+                     targetMethod = "unlock",
+                     targetLocation = "EXIT",
+                     condition = "$2.equals(\"test\")",
+                     action = "debug(\"<<<signalling openOutputStream.\"); " + "signalWake(\"lockUnlock\", true);"
+                             + "debug(\"<<<signalled openOutputStream.\")" ) } )
 
     @Test
-    @BMScript( "LockFile_OpenOutputStreamWaitsForUnlock.btm" )
-    public void lockFile_OpenOutputStreamWaitsForUnlock()
+    @BMUnitConfig( debug = true )
+    public void run()
             throws Exception
     {
-        final File f = temp.newFile( "test.txt" );
+        final ExecutorService execs = Executors.newFixedThreadPool( 2 );
+        final CountDownLatch latch = new CountDownLatch( 2 );
+        final JoinableFileManager manager = new JoinableFileManager();
 
+        final File f = temp.newFile( "test.txt" );
         final String lockUnlock = "lock-clearLocks";
         final String output = "output";
 
-        final Future<String> write =
-                testPool.submit( (Callable<String>) new OpenOutputStreamTask( fileManager, output, f, latch ) );
-        final Future<String> unlock =
-                testPool.submit( (Callable<String>) new LockThenUnlockFile( fileManager, lockUnlock, f, latch, 100 ) );
+        Map<String, String> returning = new HashMap<String, String>();
 
-        long writeTimestamp = Long.valueOf( write.get() );
-        long unlockTimestamp = Long.valueOf( unlock.get() );
-
-        assertThat(
-                "\nLock-Unlock completed at:             " + unlockTimestamp + "\n" + "OpenOutputStream completed at: "
-                        + writeTimestamp + "\nLock-Unlock should complete first", unlockTimestamp < writeTimestamp,
-                equalTo( true ) );
-    }
-
-    private final class LockThenUnlockFile
-            extends IOTask
-            implements Callable<String>
-    {
-
-        public LockThenUnlockFile( JoinableFileManager fileManager, String content, File file,
-                                   CountDownLatch controlLatch, long waiting )
-        {
-            super( fileManager, content, file, controlLatch, waiting );
-        }
-
-        @Override
-        public void run()
-        {
-            Logger logger = LoggerFactory.getLogger( getClass() );
+        execs.execute( () -> {
+            Thread.currentThread().setName( output );
             try
             {
-                logger.trace( "locking: {}", file );
-                final boolean locked = fileManager.lock( file, 100, LockLevel.write, "test" );
+                OutputStream o = manager.openOutputStream( f, -1 );
+                returning.put( output, String.valueOf( System.nanoTime() ) );
+                o.close();
+            }
+            catch ( Exception e )
+            {
+                e.printStackTrace();
+                fail( "Failed to open outputStream: " + e.getMessage() );
+            }
+            finally
+            {
+                latch.countDown();
+            }
 
-                logger.trace( "locked? {}", locked );
+        } );
 
+        execs.execute( () -> {
+            Thread.currentThread().setName( lockUnlock );
+            try
+            {
+                final boolean locked = manager.lock( f, 100, LockLevel.write, "test" );
                 assertThat( locked, equalTo( true ) );
 
-                logger.trace( "Waiting {}ms to unlock...", timeout );
-                Thread.sleep( waiting );
+                Thread.sleep( 100 );
+
+                assertThat( manager.unlock( f, "test" ), equalTo( true ) );
+                returning.put( lockUnlock, String.valueOf( System.nanoTime() ) );
             }
             catch ( final InterruptedException e )
             {
                 fail( "Interrupted!" );
             }
+            finally
+            {
+                latch.countDown();
+            }
+        } );
 
-            logger.trace( "unlocking: {}", file );
-            assertThat( fileManager.unlock( file, "test" ), equalTo( true ) );
-        }
+        latch.await();
 
-        @Override
-        public String call()
-                throws Exception
-        {
-            this.run();
-            return String.valueOf( System.nanoTime() );
-        }
+        long unlockTimestamp = Long.valueOf( returning.get( lockUnlock ) );
+        long outputTimestamp = Long.valueOf( returning.get( output ) );
+
+        assertThat( "\nLock-Unlock completed at: " + unlockTimestamp + "\n" + "OpenOutputStream completed at: "
+                            + outputTimestamp + "\nLock-Unlock should complete first",
+                    unlockTimestamp < outputTimestamp, equalTo( true ) );
     }
-
 }

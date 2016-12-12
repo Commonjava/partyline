@@ -16,7 +16,6 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
@@ -24,6 +23,7 @@ import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -37,37 +37,38 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 @RunWith( BMUnitRunner.class )
-public class OpenInputStreamConcurrentReadersGetSameResultTest
+public class TwoConcurrentReadsOnTheSameFileTest
         extends AbstractBytemanTest
 {
     /**
-     * Test that verifies concurrent reading tasks, including timeout one, on the same file are allowable, this setup an script of events for
+     * Test that verifies concurrent reading tasks on the same file are allowable, this setup an script of events for
      * one single file, where:
      * <ol>
      *     <li>Multiple reads happen simultaneously, read the content</li>
+     *     <li>Simulate reading time as 1s before stream close</li>
      *     <li>Reading processes on the same file have no interaction between each other</li>
      * </ol>
      * @throws Exception
      */
     @BMRules( rules = {
-            // wait for first openInputStream call to exit
-            @BMRule( name = "second openInputStream", targetClass = "JoinableFileManager",
+            // setup the rendezvous for all reading threads, which will mean suspending everything until all threads are started.
+            @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
+                     targetMethod = "<init>",
+                     targetLocation = "ENTRY",
+                     action = "createRendezvous(\"begin\", 2);" + "debug(\"<<<init rendezvous for begin.\")" ),
+
+            // setup the rendezvous to wait for all threads to be ready before proceeding.
+            @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
-                     condition = "$2==10",
-                     action = "debug(\">>>wait for service enter first openInputStream.\");"
-                             + "waitFor(\"first openInputStream\");"
-                             + "debug(\"<<<proceed with second openInputStream.\")" ),
+                     action = "debug(\">>>Waiting for ALL to start.\");" + "rendezvous(\"begin\");"
+                             + "debug(\"<<<\"+Thread.currentThread().getName() + \": openInputStream() thread proceeding.\" )" ),
 
-            // setup the trigger to signal second openInputStream when the first openInputStream exits
-            @BMRule( name = "first openInputStream", targetClass = "JoinableFileManager",
-                     targetMethod = "openInputStream",
+            // hold inputStream waiting for 1s before its close
+            @BMRule( name = "hold closed", targetClass = "JoinableFile$JoinInputStream",
+                     targetMethod = "close",
                      targetLocation = "ENTRY",
-                     condition = "$2==-1",
-                     action = "debug(\"<<<signalling second openInputStream.\"); "
-                             + "signalWake(\"first openInputStream\", true);"
-                             + "debug(\"<<<signalled second openInputStream.\")" ) } )
-
+                     action = "debug(\">>>waiting for closed.\");" + "java.lang.Thread.sleep(1000);" ) } )
     @Test
     @BMUnitConfig( debug = true )
     public void run()
@@ -77,34 +78,40 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
         final CountDownLatch latch = new CountDownLatch( 2 );
         final JoinableFileManager manager = new JoinableFileManager();
 
-        final File f = temp.newFile();
-        String str = "This is a test";
-        FileUtils.write( f, str );
+        final String content = "This is a bmunit test";
+        final File file = temp.newFile( "file_both_read.txt" );
+
+        FileUtils.write( file, content );
 
         List<String> returning = new ArrayList<String>();
-
         for ( int i = 0; i < 2; i++ )
         {
             final int k = i;
+
             execs.execute( () -> {
                 Thread.currentThread().setName( "openInputStream-" + k );
-                InputStream s = null;
-                try
+                try (InputStream s = manager.openInputStream( file ))
                 {
-                    switch ( k )
+                    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    int read = -1;
+                    final byte[] buf = new byte[512];
+                    System.out.println( String.format(
+                            "<<<concurrent reading>>> will start to read from the resource with inputStream %s",
+                            s.getClass().getName() ) );
+                    while ( ( read = s.read( buf ) ) > -1 )
                     {
-                        case 0:
-                            s = manager.openInputStream( f, -1 );
-                            break;
-                        case 1:
-                            // note reporting timeout handle error
-                            s = manager.openInputStream( f, 10 );
-                            break;
+                        baos.write( buf, 0, read );
                     }
-                    returning.add( IOUtils.toString( s ) );
+
+                    baos.close();
                     s.close();
+                    System.out.println( String.format(
+                            "<<<concurrent reading>>> reading from the resource done with inputStream %s",
+                            s.getClass().getName() ) );
+
+                    returning.add( new String( baos.toByteArray(), "UTF-8" ) );
                 }
-                catch ( final Exception e )
+                catch ( Exception e )
                 {
                     e.printStackTrace();
                     fail( "Failed to open inputStream: " + e.getMessage() );
@@ -118,7 +125,7 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
 
         latch.await();
 
-        assertThat( returning.get( 0 ), equalTo( str ) );
-        assertThat( returning.get( 1 ), equalTo( str ) );
+        assertThat( returning.get( 0 ), equalTo( content ) );
+        assertThat( returning.get( 1 ), equalTo( content ) );
     }
 }
