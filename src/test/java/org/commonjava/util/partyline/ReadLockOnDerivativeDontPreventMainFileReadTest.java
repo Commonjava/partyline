@@ -57,9 +57,9 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
                      targetLocation = "ENTRY",
                      binding = "name:String = $1.getName()",
                      condition = "name.equals(\"bar-1.pom\")",
-                     action = "debug(\">>>1wait for service enter first openInputStream.\");"
+                     action = "debug(\">>>wait for service enter first openInputStream.\");"
                              + "waitFor(\"first openInputStream\");"
-                             + "debug(\"<<<2proceed with second openInputStream.\")" ),
+                             + "debug(\"<<<proceed with second openInputStream.\")" ),
 
             // setup the trigger to signal second openInputStream when the first openInputStream exits
             @BMRule( name = "first openInputStream", targetClass = "JoinableFileManager",
@@ -67,9 +67,9 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
                      targetLocation = "ENTRY",
                      binding = "name:String = $1.getName()",
                      condition = "name.equals(\"bar-1.pom.sha1\")",
-                     action = "debug(\"<<<3signalling second openInputStream.\"); "
+                     action = "debug(\"<<<signalling second openInputStream.\"); "
                              + "signalWake(\"first openInputStream\", true);"
-                             + "debug(\"<<<4signalled second openInputStream.\")" ) } )
+                             + "debug(\"<<<signalled second openInputStream.\")" ) } )
     @Test
     @BMUnitConfig( debug = true )
     public void run()
