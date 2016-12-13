@@ -15,17 +15,9 @@
  */
 package org.commonjava.util.partyline;
 
-import org.jboss.byteman.contrib.bmunit.BMRule;
-import org.jboss.byteman.contrib.bmunit.BMRules;
-import org.jboss.byteman.contrib.bmunit.BMScript;
-import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
-import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
-import org.jboss.byteman.rule.exception.TypeException;
-import org.jboss.byteman.rule.helper.Helper;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
-import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.util.concurrent.CountDownLatch;

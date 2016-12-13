@@ -1,8 +1,6 @@
 package org.commonjava.util.partyline.fixture;
 
-import org.junit.rules.TestName;
 import org.junit.rules.TestRule;
-import org.junit.rules.Timeout;
 import org.junit.runners.model.Statement;
 import org.junit.runners.model.TestTimedOutException;
 
@@ -19,7 +17,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static org.apache.commons.lang.StringUtils.join;
-import static org.junit.Assert.fail;
 
 /**
  * Created by jdcasey on 11/28/16.

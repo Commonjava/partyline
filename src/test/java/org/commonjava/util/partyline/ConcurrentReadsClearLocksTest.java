@@ -16,12 +16,7 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
-import org.jboss.byteman.contrib.bmunit.BMRule;
-import org.jboss.byteman.contrib.bmunit.BMRules;
-import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
-import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.util.concurrent.CountDownLatch;
@@ -32,7 +27,7 @@ import static org.commonjava.util.partyline.UtilThreads.reader;
 import static org.commonjava.util.partyline.UtilThreads.writer;
 
 public class ConcurrentReadsClearLocksTest
-        extends AbstractBytemanTest
+        extends AbstractJointedIOTest
 {
     /**
      * Test that locks for mutiple reads clear correctly. This will setup an script of events for
