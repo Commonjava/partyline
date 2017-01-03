@@ -17,6 +17,7 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.commonjava.cdi.util.weft.ThreadContext;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -157,6 +158,8 @@ public class JoinableFileManagerTest
     public void openInputStream_cleanupCurrentThread_openOutputStream()
         throws Exception
     {
+        ThreadContext.getContext( true );
+
         final File f = temp.newFile("test.txt");
         FileUtils.write( f, "This is first pass" );
         mgr.openInputStream( f );
@@ -164,6 +167,7 @@ public class JoinableFileManagerTest
         OutputStream outputStream = mgr.openOutputStream( f );
 
         outputStream.close();
+        ThreadContext.clearContext();
     }
 
 }

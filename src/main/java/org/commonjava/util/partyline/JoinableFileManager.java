@@ -15,19 +15,26 @@
  */
 package org.commonjava.util.partyline;
 
+import org.apache.commons.io.IOUtils;
+import org.commonjava.cdi.util.weft.ThreadContext;
 import org.commonjava.util.partyline.callback.CallbackInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -39,6 +46,8 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class JoinableFileManager
 {
+
+    public static final String PARTYLINE_OPEN_FILES = "partyline-open-files";
 
     public static final long DEFAULT_TIMEOUT = 1000;
 
@@ -79,54 +88,80 @@ public class JoinableFileManager
 
     public void cleanupCurrentThread()
     {
-        final long id = Thread.currentThread().getId();
-        locks.forFilesOwnedBy( id, CLEANUP_CURRENT_THREAD, ( jf ) -> {
-            final StringBuilder sb = new StringBuilder();
-            LockOwner owner = jf.getLockOwner();
-            sb.append( "CLEARING ORPHANED LOCK:\nFile: " )
-              .append( jf )
-              .append( "\nOwned by thread: " )
-              .append( owner.getThreadName() )
-              .append( " (ID: " )
-              .append( owner.getThreadId() )
-              .append( ")" )
-              .append( "\nLock Info:\n  " )
-              .append( owner.getLockInfo() )
-              .append( "\n\nLock type: " )
-              .append( jf.isWriteLocked() ? "WRITE" : "READ" )
-              .append( "\nLocked at:\n" );
+        ThreadContext context = ThreadContext.getContext( false );
+        if ( context == null )
+        {
+            return;
+        }
 
-            StackTraceElement[] lockOrigin = owner.getLockOrigin();
-            if ( lockOrigin != null )
-            {
-                for ( final StackTraceElement elt : lockOrigin )
+        Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) context.remove( PARTYLINE_OPEN_FILES );
+        if ( open != null )
+        {
+            open.entrySet().parallelStream().forEach( ( e ) -> {
+                String name = e.getKey();
+                Closeable c = e.getValue().get();
+                if ( c != null )
                 {
-                    sb.append( "\n  " ).append( elt );
+                    try
+                    {
+                        c.close();
+                    }
+                    catch ( IOException ex )
+                    {
+                        logger.error( "Failed to close: " + name + ". Re-adding to thread context.", e );
+                        addToContext( name, c );
+                    }
                 }
-            }
-
-            sb.append( "\n\n" );
-
-            logger.warn( sb.toString() );
-
-            try
-            {
-                jf.forceClose();
-            }
-            catch ( IOException e )
-            {
-                logger.warn( String.format( "Failed to force-close: %s. Reason: %s", jf.getPath(), e.getMessage() ), e );
-            }
-            catch ( InterruptedException e )
-            {
-                logger.warn( "Interrupted while cleaning up resources owned by thread: {}", Thread.currentThread().getName() );
-                return false;
-            }
-
-            logger.trace( "After cleanup, lock info is: {}", jf.getLockOwner().getLockInfo() );
-
-            return true;
-        } );
+            } );
+        }
+//        final long id = Thread.currentThread().getId();
+//        locks.forFilesOwnedBy( id, CLEANUP_CURRENT_THREAD, ( jf ) -> {
+//            final StringBuilder sb = new StringBuilder();
+//            LockOwner owner = jf.getLockOwner();
+//            sb.append( "CLEARING ORPHANED LOCK:\nFile: " )
+//              .append( jf )
+//              .append( "\nOwned by thread: " )
+//              .append( owner.getThreadName() )
+//              .append( " (ID: " )
+//              .append( owner.getThreadId() )
+//              .append( ")" )
+//              .append( "\nLock Info:\n  " )
+//              .append( owner.getLockInfo() )
+//              .append( "\n\nLock type: " )
+//              .append( jf.isWriteLocked() ? "WRITE" : "READ" )
+//              .append( "\nLocked at:\n" );
+//
+//            StackTraceElement[] lockOrigin = owner.getLockOrigin();
+//            if ( lockOrigin != null )
+//            {
+//                for ( final StackTraceElement elt : lockOrigin )
+//                {
+//                    sb.append( "\n  " ).append( elt );
+//                }
+//            }
+//
+//            sb.append( "\n\n" );
+//
+//            logger.warn( sb.toString() );
+//
+//            try
+//            {
+//                jf.forceClose();
+//            }
+//            catch ( IOException e )
+//            {
+//                logger.warn( String.format( "Failed to force-close: %s. Reason: %s", jf.getPath(), e.getMessage() ), e );
+//            }
+//            catch ( InterruptedException e )
+//            {
+//                logger.warn( "Interrupted while cleaning up resources owned by thread: {}", Thread.currentThread().getName() );
+//                return false;
+//            }
+//
+//            logger.trace( "After cleanup, lock info is: {}", jf.getLockOwner().getLockInfo() );
+//
+//            return true;
+//        } );
     }
 
     public synchronized void startReporting()
@@ -204,7 +239,7 @@ public class JoinableFileManager
     {
         logger.trace( ">>>OPEN OUTPUT: {} with timeout: {}", file, timeout );
 
-        return locks.setOrJoinFile( file, null, true, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
+        OutputStream stream = locks.setOrJoinFile( file, null, true, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
             if ( result == null )
             {
                 throw new IOException( "Could not open output stream to: " + file + " in " + timeout + "ms." );
@@ -213,6 +248,9 @@ public class JoinableFileManager
             return result.getOutputStream();
         } );
 
+        addToContext( "OUTPUT: " + file, stream );
+
+        return stream;
     }
 
     public boolean tryDelete( File file )
@@ -275,7 +313,26 @@ public class JoinableFileManager
             throw ie;
         }
 
+        addToContext( "INPUT: " + file, stream );
+
         return stream;
+    }
+
+    private void addToContext( String name, Closeable closeable )
+    {
+        logger.info( "Adding {} to closeable set in ThreadContext" );
+
+        ThreadContext threadContext = ThreadContext.getContext( false );
+        if ( closeable != null && threadContext != null )
+        {
+            Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) threadContext.get( PARTYLINE_OPEN_FILES );
+            if ( open == null )
+            {
+                open = new WeakHashMap<>();
+                threadContext.put( PARTYLINE_OPEN_FILES, open );
+            }
+            open.put( name, new WeakReference( closeable ) );
+        }
     }
 
     /**
