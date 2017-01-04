@@ -39,6 +39,8 @@
   </scm>
   
   <properties>
+    <weftVersion>1.3-SNAPSHOT</weftVersion>
+
     <projectOwner>Red Hat, Inc.</projectOwner>
     <javaVersion>1.8</javaVersion>
     <byteman.version>3.0.6</byteman.version>
@@ -53,6 +55,11 @@
         <version>16</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.commonjava.cdi.util</groupId>
+        <artifactId>weft</artifactId>
+        <version>${weftVersion}</version>
       </dependency>
       <dependency>
         <groupId>org.jboss.byteman</groupId>
@@ -117,6 +124,10 @@
     <dependency>
       <groupId>org.jboss.byteman</groupId>
       <artifactId>byteman-bmunit</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.commonjava.cdi.util</groupId>
+      <artifactId>weft</artifactId>
     </dependency>
   </dependencies>
   

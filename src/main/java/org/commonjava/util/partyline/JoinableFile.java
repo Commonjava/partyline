@@ -210,19 +210,22 @@ public final class JoinableFile
         return channel == null || output != null;
     }
 
-    void forceClose()
-            throws IOException, InterruptedException
-    {
-        opLock.lockAnd( (lock)->{
-            Logger logger = LoggerFactory.getLogger( getClass() );
-            logger.trace( "forceClose() called, closing all open inputs..." );
-            new HashMap<>(inputs).forEach( ( k, stream ) -> IOUtils.closeQuietly( stream ) );
-
-            logger.trace( "Closing the rest" );
-            IOUtils.closeQuietly( this );
-            return null;
-        } );
-    }
+//    void forceClose()
+//            throws IOException, InterruptedException
+//    {
+//        opLock.lockAnd( (lock)->{
+//            Logger logger = LoggerFactory.getLogger( getClass() );
+//            logger.trace( "forceClose() called, closing all open inputs..." );
+//            new HashMap<>(inputs).forEach( ( k, stream ) -> {
+//                logger.trace("FORCE-CLOSE closing joint: {}", stream.getJointIndex() );
+//                IOUtils.closeQuietly( stream );
+//            } );
+//
+//            logger.trace( "Closing the rest" );
+//            IOUtils.closeQuietly( this );
+//            return null;
+//        } );
+//    }
 
     /**
      * Mark this stream as closed. Don't close the underlying channel if
@@ -581,6 +584,11 @@ public final class JoinableFile
             closed = true;
             super.close();
             jointClosed( this, originalThreadName );
+        }
+
+        int getJointIndex()
+        {
+            return jointIdx;
         }
     }
 
