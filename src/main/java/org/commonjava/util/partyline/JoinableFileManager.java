@@ -320,7 +320,7 @@ public class JoinableFileManager
 
     private void addToContext( String name, Closeable closeable )
     {
-        logger.info( "Adding {} to closeable set in ThreadContext" );
+        logger.info( "Adding {} to closeable set in ThreadContext", name );
 
         ThreadContext threadContext = ThreadContext.getContext( false );
         if ( closeable != null && threadContext != null )
