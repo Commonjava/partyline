@@ -244,7 +244,7 @@ public final class JoinableFile
 
                 closed = true;
 
-                if ( output != null && !output.closed )
+                if ( output != null && !output.isClosed() )
                 {
                     logger.trace( "Closing output" );
                     output.close();
@@ -350,7 +350,7 @@ public final class JoinableFile
                 logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
                 if ( inputs.isEmpty() )
                 {
-                    if ( output == null || output.closed )
+                    if ( output == null || output.isClosed() )
                     {
                         closed = true;
                         reallyClose();
@@ -430,6 +430,11 @@ public final class JoinableFile
         public void flush()
                 throws IOException
         {
+            if ( closed )
+            {
+                throw new IOException( "Cannot write to closed stream!" );
+            }
+
             buf.flip();
             int count = channel.write( buf );
             buf.clear();
@@ -457,12 +462,22 @@ public final class JoinableFile
         public void close()
                 throws IOException
         {
-            closed = true;
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.trace( "OUT :: close() called" );
+            if ( closed )
+            {
+                logger.trace( "OUT :: already closed" );
+                return;
+            }
             flush();
             super.close();
+            closed = true;
             JoinableFile.this.close();
         }
 
+        boolean isClosed() {
+            return closed;
+        }
     }
 
     /**

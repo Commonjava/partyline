@@ -108,7 +108,7 @@ public class JoinableFileManager
                     }
                     catch ( IOException ex )
                     {
-                        logger.error( "Failed to close: " + name + ". Re-adding to thread context.", e );
+                        logger.error( "Failed to close: " + name + ". Re-adding to thread context.", ex );
                         addToContext( name, c );
                     }
                 }
