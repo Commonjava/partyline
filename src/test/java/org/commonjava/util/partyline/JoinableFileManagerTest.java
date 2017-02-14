@@ -17,23 +17,31 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.commonjava.cdi.util.weft.ContextSensitiveExecutorService;
 import org.commonjava.cdi.util.weft.ThreadContext;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 
 public class JoinableFileManagerTest
     extends AbstractJointedIOTest
@@ -45,6 +53,161 @@ public class JoinableFileManagerTest
     public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
     private final JoinableFileManager mgr = new JoinableFileManager();
+
+    @Test
+    public void twoFileReaders_CleanupFileEntryOnLastClose()
+            throws Exception
+    {
+        String src = "This is a test";
+
+        File f = temp.newFile();
+        FileUtils.write( f, src );
+
+        int count = 2;
+        CountDownLatch start = new CountDownLatch( count );
+        CountDownLatch end = new CountDownLatch( count );
+
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        ExecutorService executor = Executors.newCachedThreadPool();
+        for( int i=0; i<count; i++)
+        {
+            logger.info( "Starting: {}", i );
+            executor.execute( () -> {
+                logger.info( "Signaling thread: {} has started", Thread.currentThread().getName() );
+                start.countDown();
+                try
+                {
+                    logger.info( "Waiting for other thread(s) to start..." );
+                    start.await( 3, TimeUnit.SECONDS );
+
+                    assertThat( "Threads did not start correctly!", start.getCount(), equalTo( 0L ) );
+
+                    logger.info( "Opening: {}", f );
+
+                    try (InputStream in = mgr.openInputStream( f ))
+                    {
+                        assertThat( IOUtils.toString( in ), equalTo( src ) );
+                    }
+                    catch ( IOException e )
+                    {
+                        e.printStackTrace();
+                        fail( "Cannot open: " + f );
+                    }
+                }
+                catch ( InterruptedException e )
+                {
+                    e.printStackTrace();
+                    fail( "Interrupted" );
+                }
+                finally
+                {
+                    logger.info( "Signaling thread: {} has ended", Thread.currentThread().getName() );
+                    end.countDown();
+                }
+            } );
+        }
+
+        logger.info( "Waiting for end of threads" );
+        end.await(5, TimeUnit.SECONDS);
+
+        assertThat( "Threads did not end correctly!", end.getCount(), equalTo( 0L ) );
+
+        AtomicInteger counter = new AtomicInteger( 0 );
+        mgr.getFileTree().forAll( entry->true, entry->counter.incrementAndGet() );
+
+        assertThat( "FileEntry instance was not removed after closing!", counter.get(), equalTo( 0 ) );
+    }
+
+    @Test
+    public void concurrentWriteAndRead_CleanupFileEntryOnLastClose()
+            throws Exception
+    {
+        String src = "This is a test";
+
+        File f = temp.newFile();
+        FileUtils.write( f, src );
+
+        int count = 2;
+        CountDownLatch writing = new CountDownLatch( count );
+        CountDownLatch reading = new CountDownLatch( count );
+        CountDownLatch end = new CountDownLatch( count );
+
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        ExecutorService executor = Executors.newCachedThreadPool();
+        executor.execute( ()->{
+            logger.info( "Starting write: {}", f );
+            try (OutputStream out = mgr.openOutputStream( f ))
+            {
+                logger.info( "Signaling write starting: {}", f );
+                writing.countDown();
+
+                IOUtils.write( src, out );
+
+                logger.info( "Waiting for read to start..." );
+                reading.await(1, TimeUnit.SECONDS);
+            }
+            catch ( IOException e )
+            {
+                e.printStackTrace();
+                fail( "Failed to write: " + f );
+            }
+            catch ( InterruptedException e )
+            {
+                e.printStackTrace();
+                fail( "Write Interrupted!" );
+            }
+            finally
+            {
+                end.countDown();
+            }
+        } );
+
+        executor.execute( () -> {
+            logger.info( "Signaling thread: {} has started", Thread.currentThread().getName() );
+            writing.countDown();
+            try
+            {
+                logger.info( "Waiting for other thread(s) to written..." );
+                writing.await( 1, TimeUnit.SECONDS );
+
+                assertThat( "Threads did not written correctly!", writing.getCount(), equalTo( 0L ) );
+
+                logger.info( "Opening: {}", f );
+
+                try (InputStream in = mgr.openInputStream( f ))
+                {
+                    logger.info( "Signaling that reading has begun: {}", f );
+                    reading.countDown();
+                    assertThat( IOUtils.toString( in ), equalTo( src ) );
+                }
+                catch ( IOException e )
+                {
+                    e.printStackTrace();
+                    fail( "Cannot open: " + f );
+                }
+            }
+            catch ( InterruptedException e )
+            {
+                e.printStackTrace();
+                fail( "Interrupted" );
+            }
+            finally
+            {
+                logger.info( "Signaling thread: {} has ended", Thread.currentThread().getName() );
+                end.countDown();
+            }
+        } );
+
+        logger.info( "Waiting for end of threads" );
+        end.await(5, TimeUnit.SECONDS);
+
+        assertThat( "Threads did not end correctly!", end.getCount(), equalTo( 0L ) );
+
+        AtomicInteger counter = new AtomicInteger( 0 );
+        mgr.getFileTree().forAll( entry->true, entry->counter.incrementAndGet() );
+
+        assertThat( "FileEntry instance was not removed after closing!", counter.get(), equalTo( 0 ) );
+    }
 
     @Test
     public void lockWriteDoesntPreventOpenInputStream()

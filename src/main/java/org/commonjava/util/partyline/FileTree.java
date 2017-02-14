@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import static org.commonjava.util.partyline.LockLevel.read;
@@ -50,28 +51,18 @@ final class FileTree
 
     private Map<String, FileOperationLock> operationLocks = new WeakHashMap<>();
 
-    void forAll( String operationName, Consumer<JoinableFile> fileConsumer )
+    void forAll( Consumer<JoinableFile> fileConsumer )
     {
-        TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
-        sorted.forEach( ( key, entry ) -> {
-            if ( entry.file != null )
-            {
-                fileConsumer.accept( entry.file );
-            }
-        } );
+        forAll( entry -> entry.file != null, entry->fileConsumer.accept( entry.file ) );
     }
 
-    void forFilesOwnedBy( long ownerId, String operationName, Function<JoinableFile, Boolean> fileConsumer )
+    void forAll( Predicate<? super FileEntry> predicate, Consumer<FileEntry> fileConsumer )
     {
         TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
-        AtomicBoolean continueProcessing = new AtomicBoolean( true );
         sorted.forEach( ( key, entry ) -> {
-            if ( continueProcessing.get() && entry.file != null && entry.lock.getThreadId() == ownerId )
+            if ( predicate.test( entry ) )
             {
-                if ( !fileConsumer.apply( entry.file ) )
-                {
-                    continueProcessing.set( false );
-                }
+                fileConsumer.accept( entry );
             }
         } );
     }
@@ -471,7 +462,7 @@ final class FileTree
         return opLock.lockAnd( op );
     }
 
-    private static final class FileEntry
+    static final class FileEntry
     {
         private final String name;
 
