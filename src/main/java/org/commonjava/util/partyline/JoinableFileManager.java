@@ -86,6 +86,11 @@ public class JoinableFileManager
         this.timer = new Timer( true );
     }
 
+    FileTree getFileTree()
+    {
+        return locks;
+    }
+
     public void cleanupCurrentThread()
     {
         ThreadContext context = ThreadContext.getContext( false );
@@ -193,7 +198,7 @@ public class JoinableFileManager
     {
         final Map<File, CharSequence> active = new HashMap<File, CharSequence>();
 
-        locks.forAll( GET_ACTIVE_LOCKS, ( jf ) -> {
+        locks.forAll( ( jf ) -> {
             final StringBuilder owner = new StringBuilder();
 
             final LockOwner ref = jf.getLockOwner();

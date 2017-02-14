@@ -49,7 +49,7 @@ public class FileTreeTest
 //        JoinableFile jf = new JoinableFile( child, false );
 //        root.add( jf );
 
-        System.out.println(root.renderTree());
+        System.out.println("File tree rendered as:\n"+ root.renderTree());
     }
 
     private File createStructure( String path, boolean writeTestFile )
