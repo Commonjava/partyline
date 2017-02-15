@@ -47,7 +47,7 @@ final class FileTree
 
     private static final long WAIT_TIMEOUT = 100;
 
-    private Map<String, FileEntry> entryMap = new WeakHashMap<>();
+    private Map<String, FileEntry> entryMap = new ConcurrentHashMap<>();
 
     private Map<String, FileOperationLock> operationLocks = new WeakHashMap<>();
 
