@@ -253,7 +253,7 @@ public class JoinableFileManager
             return result.getOutputStream();
         } );
 
-        addToContext( "OUTPUT: " + file, stream );
+        addToContext( "OUTPUT@" + System.nanoTime() + ": " + file, stream );
 
         return stream;
     }
@@ -318,7 +318,7 @@ public class JoinableFileManager
             throw ie;
         }
 
-        addToContext( "INPUT: " + file, stream );
+        addToContext( "INPUT@" + System.nanoTime() + ": " + file, stream );
 
         return stream;
     }
