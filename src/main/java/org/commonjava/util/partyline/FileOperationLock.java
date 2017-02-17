@@ -37,7 +37,10 @@ final class FileOperationLock
 
     public void unlock()
     {
-        lock.unlock();
+        if ( lock.isLocked() )
+        {
+            lock.unlock();
+        }
     }
 
     public void await( long timeoutMs )

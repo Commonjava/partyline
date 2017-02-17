@@ -329,7 +329,7 @@ final class FileTree
         Logger logger = LoggerFactory.getLogger( getClass() );
         while ( end < 1 || System.currentTimeMillis() < end )
         {
-            T result = tryLock( realFile, null, "Open File for " + ( doOutput ? "output" : "input" ),
+            T result = tryLock( realFile, Thread.currentThread().getName(), "Open File for " + ( doOutput ? "output" : "input" ),
                                            doOutput ? LockLevel.write : read, WAIT_TIMEOUT, unit, ( opLock ) -> {
                         FileEntry entry = entryMap.get( realFile.getAbsolutePath() );
                         if ( entry.file != null )
@@ -388,7 +388,7 @@ final class FileTree
     boolean delete( File file, long timeout, TimeUnit unit )
             throws InterruptedException, IOException
     {
-        return tryLock( file, null, "Delete File", LockLevel.delete, timeout, unit, ( opLock ) -> {
+        return tryLock( file, Thread.currentThread().getName(), "Delete File", LockLevel.delete, timeout, unit, ( opLock ) -> {
             FileEntry entry = entryMap.remove( file.getAbsolutePath() );
             //            synchronized ( this )
             //            {

@@ -118,7 +118,7 @@ final class LockOwner
     @Override
     public String toString()
     {
-        return String.format( "LockOwner [%s(%s)]\n  %s", threadName, threadId,
+        return String.format( "LockOwner [%s]\n  %s", super.hashCode(),
                               lockOrigin == null ? "-suppressed-" : join( lockOrigin, "\n  " ) );
     }
 
@@ -150,7 +150,7 @@ final class LockOwner
         Logger logger = LoggerFactory.getLogger( getClass() );
 
         int lockCount = lockRefs.size();
-        logger.trace( "Incremented lock count to: {} with ref: {}", lockCount, label );
+        logger.trace( "{} Incremented lock count to: {} with ref: {}", this, lockCount, label );
         return lockCount;
     }
 
@@ -167,8 +167,9 @@ final class LockOwner
         {
             ref = lockRefs.remove( threadName );
         }
+
         int lockCount = lockRefs.size();
-        logger.trace( "{} Decrementing lock count, popping ref: {}. New count is: {}\nLock Info:\n{}", threadName, ref, lockCount, getLockInfo() );
+        logger.trace( "{} Decrementing lock count in: {}, popping ref: {}. New count is: {}\nLock Info:\n{}", threadName, this, ref, lockCount, getLockInfo() );
 
         if ( lockCount < 1 )
         {
