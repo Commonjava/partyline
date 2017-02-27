@@ -21,7 +21,7 @@
   <parent>
     <groupId>org.commonjava</groupId>
     <artifactId>commonjava</artifactId>
-    <version>11</version>
+    <version>12-SNAPSHOT</version>
   </parent>
 
   <groupId>org.commonjava.util</groupId>
@@ -45,6 +45,8 @@
     <javaVersion>1.8</javaVersion>
     <byteman.version>3.0.6</byteman.version>
     <test-forkCount>1</test-forkCount>
+
+    <plugin.jacoco.skip>false</plugin.jacoco.skip>
   </properties>
 
   <dependencyManagement>
