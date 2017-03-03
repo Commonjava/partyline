@@ -240,7 +240,12 @@ public final class JoinableFile
         {
             opLock.lockAnd( (lock)->{
                 Logger logger = LoggerFactory.getLogger( getClass() );
-                logger.trace( "close() called, marking as closed..." );
+                if ( closed )
+                {
+                    logger.trace( "close() called, but is already closed." );
+                    return null;
+                }
+                logger.trace( "close() called, marking as closed." );
 
                 closed = true;
 
@@ -596,6 +601,11 @@ public final class JoinableFile
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "Joint: {} close() called.", jointIdx );
+            if ( closed )
+            {
+                logger.trace( "Joint: {} already closed.", jointIdx );
+                return;
+            }
             closed = true;
             super.close();
             jointClosed( this, originalThreadName );
