@@ -29,7 +29,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @RunWith( BMUnitRunner.class )
-@BMUnitConfig( debug = true )
 public class JoinFileWriteTwiceWithDelayTest
         extends AbstractBytemanTest
 {
