@@ -37,7 +37,6 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 @RunWith( BMUnitRunner.class )
-
 public class ReadLockOnDerivativeDontPreventMainFileReadTest
         extends AbstractBytemanTest
 {
