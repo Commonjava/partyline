@@ -21,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import java.lang.ref.WeakReference;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Stack;
 
 import static org.apache.commons.lang.StringUtils.join;
 

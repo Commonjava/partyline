@@ -29,9 +29,7 @@ import java.util.TreeMap;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -47,9 +45,9 @@ final class FileTree
 
     private static final long WAIT_TIMEOUT = 100;
 
-    private Map<String, FileEntry> entryMap = new ConcurrentHashMap<>();
+    private final Map<String, FileEntry> entryMap = new ConcurrentHashMap<>();
 
-    private Map<String, FileOperationLock> operationLocks = new WeakHashMap<>();
+    private final Map<String, FileOperationLock> operationLocks = new WeakHashMap<>();
 
     void forAll( Consumer<JoinableFile> fileConsumer )
     {
@@ -91,7 +89,6 @@ final class FileTree
     LockLevel getLockLevel( File file )
     {
         FileEntry entry = getLockingEntry( file );
-        Logger logger = LoggerFactory.getLogger( getClass() );
         if ( entry == null )
         {
             return null;
@@ -407,7 +404,7 @@ final class FileTree
     private FileEntry getLockingEntry( File file )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
-        FileEntry entry = null;
+        FileEntry entry;
 
         // search self and ancestors...
         File f = file;

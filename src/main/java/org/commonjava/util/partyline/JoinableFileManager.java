@@ -15,7 +15,6 @@
  */
 package org.commonjava.util.partyline;
 
-import org.apache.commons.io.IOUtils;
 import org.commonjava.cdi.util.weft.ThreadContext;
 import org.commonjava.util.partyline.callback.CallbackInputStream;
 import org.slf4j.Logger;
@@ -29,9 +28,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.WeakHashMap;
@@ -196,7 +193,7 @@ public class JoinableFileManager
 
     public Map<File, CharSequence> getActiveLocks()
     {
-        final Map<File, CharSequence> active = new HashMap<File, CharSequence>();
+        final Map<File, CharSequence> active = new HashMap<>();
 
         locks.forAll( ( jf ) -> {
             final StringBuilder owner = new StringBuilder();
@@ -336,7 +333,7 @@ public class JoinableFileManager
                 open = new WeakHashMap<>();
                 threadContext.put( PARTYLINE_OPEN_FILES, open );
             }
-            open.put( name, new WeakReference( closeable ) );
+            open.put( name, new WeakReference<>( closeable ) );
         }
     }
 

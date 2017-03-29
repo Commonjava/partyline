@@ -15,7 +15,6 @@
  */
 package org.commonjava.util.partyline;
 
-import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -441,7 +440,16 @@ public final class JoinableFile
             }
 
             buf.flip();
-            int count = channel.write( buf );
+            int count;
+            if ( channel != null )
+            {
+                count = channel.write( buf );
+            }
+            else
+            {
+                throw new IllegalStateException(
+                        "File channel is null, is the file descriptor " + path + " a directory?" );
+            }
             buf.clear();
 
             super.flush();
