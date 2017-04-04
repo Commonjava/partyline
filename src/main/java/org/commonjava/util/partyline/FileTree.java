@@ -41,7 +41,7 @@ import static org.commonjava.util.partyline.LockLevel.read;
 final class FileTree
 {
 
-    private static final long DEFAULT_LOCK_TIMEOUT = 5000;
+    public static final long DEFAULT_LOCK_TIMEOUT = 5000;
 
     private static final long WAIT_TIMEOUT = 100;
 
@@ -107,7 +107,7 @@ final class FileTree
     {
         try
         {
-            return withOpLock( f, ( opLock ) -> {
+            return withOpLock( f, DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, ( opLock ) -> {
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
@@ -166,7 +166,7 @@ final class FileTree
     {
         try
         {
-            return withOpLock( f, ( opLock ) -> {
+            return withOpLock( f, DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, ( opLock ) -> {
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
@@ -235,7 +235,7 @@ final class FileTree
                            LockedFileOperation<T> operation )
             throws InterruptedException, IOException
     {
-        return withOpLock( f, ( opLock ) -> {
+        return withOpLock( f, timeout, unit, ( opLock ) -> {
             long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
 
             Logger logger = LoggerFactory.getLogger( getClass() );
@@ -327,46 +327,55 @@ final class FileTree
         while ( end < 1 || System.currentTimeMillis() < end )
         {
             T result = tryLock( realFile, Thread.currentThread().getName(), "Open File for " + ( doOutput ? "output" : "input" ),
-                                           doOutput ? LockLevel.write : read, WAIT_TIMEOUT, unit, ( opLock ) -> {
+                                           doOutput ? LockLevel.write : read, timeout, unit, ( opLock ) -> {
                         FileEntry entry = entryMap.get( realFile.getAbsolutePath() );
-                        if ( entry.file != null )
+                        boolean proceed = false;
+                        synchronized ( entry )
                         {
-                            if ( doOutput )
+                            if ( entry.file != null )
                             {
-                                throw new IOException( "File already opened for writing: " + realFile );
-                            }
-                            else if ( !entry.file.isJoinable() )
-                            {
-                                // If we're joining the file and the file is in the process of closing, we need to wait and
-                                // try again once the file has finished closing.
+                                if ( doOutput )
+                                {
+                                    throw new IOException( "File already opened for writing: " + realFile );
+                                }
+                                else if ( !entry.file.isJoinable() )
+                                {
+                                    // If we're joining the file and the file is in the process of closing, we need to wait and
+                                    // try again once the file has finished closing.
 
-                                logger.trace( "File open but in process of closing; not joinable. Will wait..." );
+                                    logger.trace( "File open but in process of closing; not joinable. Will wait..." );
 
-                                // undo the lock we just placed on this entry, to allow it to clear...
-                                entry.lock.unlock( Thread.currentThread().getName() );
+                                    // undo the lock we just placed on this entry, to allow it to clear...
+                                    entry.lock.unlock( Thread.currentThread().getName() );
 
-                                opLock.signal();
+                                    opLock.signal();
 
-                                logger.trace( "Waiting for file to close at: {}", System.currentTimeMillis() );
-                                opLock.await( WAIT_TIMEOUT );
+                                    logger.trace( "Waiting for file to close at: {}", System.currentTimeMillis() );
+                                    opLock.await( WAIT_TIMEOUT );
 
-                                logger.trace( "Proceeding with lock attempt at: {}", System.currentTimeMillis() );
+                                    logger.trace( "Proceeding with lock attempt at: {}", System.currentTimeMillis() );
+                                }
+                                else
+                                {
+                                    logger.trace( "Got joinable file" );
+                                    proceed = true;
+                                }
                             }
                             else
                             {
-                                logger.trace( "Got joinable file" );
-                                return function.execute( entry.file );
+                                logger.trace( "No pre-existing open file; opening" );
+                                JoinableFile joinableFile = new JoinableFile( realFile, entry.lock,
+                                                                              new FileTreeCallbacks( callbacks, entry,
+                                                                                                     realFile ), doOutput, opLock );
+
+                                entry.file = joinableFile;
+                                proceed = true;
                             }
                         }
-                        else
-                        {
-                            logger.trace( "No pre-existing open file; opening" );
-                            JoinableFile joinableFile = new JoinableFile( realFile, entry.lock,
-                                                                          new FileTreeCallbacks( callbacks, entry,
-                                                                                                 realFile ), doOutput, opLock );
 
-                            entry.file = joinableFile;
-                            return function.execute( joinableFile );
+                        if ( proceed )
+                        {
+                            return function.execute( entry.file );
                         }
 
                         return null;
@@ -441,7 +450,7 @@ final class FileTree
         return null;
     }
 
-    private <T> T withOpLock( File f, LockedFileOperation<T> op )
+    private <T> T withOpLock( File f, long timeout, TimeUnit unit, LockedFileOperation<T> op )
             throws IOException, InterruptedException
     {
         String path = f.getAbsolutePath();
@@ -456,7 +465,7 @@ final class FileTree
             }
         }
 
-        return opLock.lockAnd( op );
+        return opLock.lockAnd( timeout, unit, op );
     }
 
     static final class FileEntry
@@ -534,7 +543,7 @@ final class FileTree
 
             try
             {
-                withOpLock( file, ( opLock ) -> {
+                withOpLock( file, DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, ( opLock ) -> {
                     entry.file = null;
                     clearLocks( file );
                     return null;

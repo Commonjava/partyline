@@ -33,6 +33,9 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import static org.commonjava.util.partyline.FileTree.DEFAULT_LOCK_TIMEOUT;
 
 /**
  * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
@@ -122,7 +125,7 @@ public final class JoinableFile
             {
                 logger.trace( "INIT: read-write JoinableFile: {}", target );
                 output = new JoinableOutputStream();
-                randomAccessFile = new RandomAccessFile( target, "rw" );
+                randomAccessFile = new RandomAccessFile( target, "rws" );
                 channel = randomAccessFile.getChannel();
                 fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
             }
@@ -171,7 +174,7 @@ public final class JoinableFile
     InputStream joinStream()
             throws IOException, InterruptedException
     {
-        return opLock.lockAnd((lock)->{
+        return opLock.lockAnd( DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, ( lock)->{
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
@@ -237,7 +240,7 @@ public final class JoinableFile
     {
         try
         {
-            opLock.lockAnd( (lock)->{
+            opLock.lockAnd( DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, (lock)->{
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 if ( closed )
                 {
@@ -347,7 +350,7 @@ public final class JoinableFile
     {
         try
         {
-            opLock.lockAnd( (lock)->{
+            opLock.lockAnd( DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, (lock)->{
                 inputs.remove( input.hashCode() );
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
@@ -444,12 +447,14 @@ public final class JoinableFile
             if ( channel != null )
             {
                 count = channel.write( buf );
+                channel.force( false );
             }
             else
             {
                 throw new IllegalStateException(
                         "File channel is null, is the file descriptor " + path + " a directory?" );
             }
+
             buf.clear();
 
             super.flush();

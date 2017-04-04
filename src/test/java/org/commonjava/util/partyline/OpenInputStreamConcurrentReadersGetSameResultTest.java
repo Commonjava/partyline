@@ -54,7 +54,7 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
             @BMRule( name = "second openInputStream", targetClass = "JoinableFileManager",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
-                     condition = "$2==10",
+                     condition = "$2==100",
                      action = "debug(\">>>wait for service enter first openInputStream.\");"
                              + "waitFor(\"first openInputStream\");"
                              + "debug(\"<<<proceed with second openInputStream.\")" ),
@@ -98,7 +98,7 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
                             break;
                         case 1:
                             // note reporting timeout handle error
-                            s = manager.openInputStream( f, 10 );
+                            s = manager.openInputStream( f, 100 );
                             break;
                     }
                     returning.add( IOUtils.toString( s ) );
@@ -117,6 +117,8 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
         }
 
         latch.await();
+
+        assertThat( returning.size(), equalTo( 2 ) );
 
         assertThat( returning.get( 0 ), equalTo( str ) );
         assertThat( returning.get( 1 ), equalTo( str ) );

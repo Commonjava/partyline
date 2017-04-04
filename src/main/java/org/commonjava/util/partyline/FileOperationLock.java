@@ -30,9 +30,9 @@ final class FileOperationLock
 
     private Condition changed = lock.newCondition();
 
-    public void lock()
+    public boolean lock()
     {
-        lock.lock();
+        return lock.tryLock();
     }
 
     public void unlock()
@@ -54,18 +54,27 @@ final class FileOperationLock
         changed.signal();
     }
 
-    public <T> T lockAnd( LockedFileOperation<T> op )
+    public <T> T lockAnd( long timeout, TimeUnit unit, LockedFileOperation<T> op )
             throws IOException, InterruptedException
     {
+        long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
+        boolean locked = false;
         try
         {
-            lock();
+            while ( end < 1 || System.currentTimeMillis() < end )
+            {
+                locked = lock();
+                if ( locked )
+                {
+                    return op.execute( this );
+                }
+            }
 
-            return op.execute( this );
+            return null;
         }
         finally
         {
-            unlock();
+            if ( locked ) unlock();
         }
     }
 
