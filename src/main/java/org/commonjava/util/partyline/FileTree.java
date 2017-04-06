@@ -47,7 +47,7 @@ final class FileTree
 
     private final Map<String, FileEntry> entryMap = new ConcurrentHashMap<>();
 
-    private final Map<String, FileOperationLock> operationLocks = new WeakHashMap<>();
+    private final Map<String, FileOperationLock> operationLocks = new ConcurrentHashMap<>();
 
     void forAll( Consumer<JoinableFile> fileConsumer )
     {
@@ -308,6 +308,7 @@ final class FileTree
                 // no matter what else happens, do NOT allow a delete lock to remain
                 if ( entry != null && entry.lock.getLockLevel() == LockLevel.delete && entry.lock.isLocked() )
                 {
+                    logger.trace( "Clearing locks on delete-locked file entry: {}", f );
                     clearLocks( f );
                 }
             }
@@ -363,9 +364,9 @@ final class FileTree
                         {
                             logger.trace( "No pre-existing open file; opening new JoinableFile under opLock: {}", opLock );
                             entry.file = new JoinableFile( realFile, entry.lock,
-                                                                          new FileTreeCallbacks( callbacks, entry,
-                                                                                                 realFile ),
-                                                                          doOutput, opLock );
+                                                           new FileTreeCallbacks( callbacks, entry,
+                                                                                  realFile ),
+                                                           doOutput, opLock );
 
                             proceed = true;
                         }
@@ -454,12 +455,13 @@ final class FileTree
         String path = f.getAbsolutePath();
         FileOperationLock opLock = null;
 
-        boolean locked = false;
+//        boolean locked = false;
         try
         {
             synchronized ( operationLocks )
             {
-                opLock = operationLocks.computeIfAbsent( path, k -> {
+                opLock = operationLocks.computeIfAbsent( path, k ->
+                {
                     FileOperationLock lock = new FileOperationLock();
 
                     logger.trace( "Initializing new FileOperationLock: {} for path: {}", lock, path );
@@ -468,24 +470,33 @@ final class FileTree
 
                 logger.trace( "Using FileOperationLock: {} for path: {}", opLock, path );
 
-                if ( !opLock.lock(DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS) )
-                {
-                    throw new IOException( "Failed to acquire operational lock for: " + path + " using opLock: " + opLock + " (currently locked by: " + opLock.getLocker() + ")" );
-                }
-
-                locked = true;
             }
 
+            if ( !opLock.lock( DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS ) )
+            {
+                throw new IOException(
+                        "Failed to acquire operational lock for: " + path + " using opLock: " + opLock
+                                + " (currently locked by: " + opLock.getLocker() + ")" );
+            }
+
+            //                locked = true;
             logger.trace( "Locked FileOperationLock: {} for path: {}. Proceeding with file operation.", opLock, path );
 
             return op.execute( opLock );
         }
         finally
         {
-            if ( locked )
+            //            if ( locked )
+            //            {
+            try
             {
                 opLock.unlock();
             }
+            catch ( Throwable t )
+            {
+                logger.error( "Failed to unlock: " + path, t );
+            }
+            //            }
         }
     }
 

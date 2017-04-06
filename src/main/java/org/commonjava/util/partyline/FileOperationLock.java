@@ -46,17 +46,21 @@ final class FileOperationLock
             logger.trace( "Locking: {} for: {} from:\n\n{}\n\n", this, Thread.currentThread().getName(), join( Thread.currentThread().getStackTrace(), "\n  " ) );
         }
 
-        boolean result = lock.tryLock(timeout, unit);
-        if ( result )
-        {
-            this.locker = Thread.currentThread().getName();
-        }
-        return result;
+        lock.lockInterruptibly();
+//        boolean result = lock.tryLock(timeout, unit);
+//        if ( result )
+//        {
+//            this.locker = Thread.currentThread().getName();
+//        }
+//        return result;
+
+        logger.trace( "Lock established." );
+        return true;
     }
 
     public void unlock()
     {
-        if ( lock.isLocked() )
+        if ( lock.isHeldByCurrentThread() )
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
             if ( logger.isTraceEnabled() )
@@ -66,6 +70,8 @@ final class FileOperationLock
 
             lock.unlock();
             locker = null;
+
+            logger.trace( "Locked released" );
         }
     }
 
@@ -82,7 +88,7 @@ final class FileOperationLock
 
     public void signal()
     {
-        if ( lock.isLocked() )
+        if ( lock.isHeldByCurrentThread() )
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "Signal from: {} in lock of: {} (locked by: {})", Thread.currentThread().getName(), this, locker );
