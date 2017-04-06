@@ -19,6 +19,7 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+@Deprecated
 public class CallbackInputStream
     extends FilterInputStream
 {

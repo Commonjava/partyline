@@ -37,25 +37,28 @@ final class LockOwner
 
     private final Map<String, String> lockRefs = new LinkedHashMap<>();
 
+    private String path;
+
     private final LockLevel lockLevel;
 
-    LockOwner( String ownerName, String label, LockLevel lockLevel )
+    LockOwner( String path, String ownerName, String label, LockLevel lockLevel )
     {
+        this.path = path;
         this.lockLevel = lockLevel;
 
         final Thread t = Thread.currentThread();
         this.threadRef = new WeakReference<>( t );
         this.threadName = t.getName() + "(" + label + ")";
         this.threadId = t.getId();
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        if ( logger.isDebugEnabled() )
-        {
-            this.lockOrigin = t.getStackTrace();
-        }
-        else
-        {
-            this.lockOrigin = null;
-        }
+//        Logger logger = LoggerFactory.getLogger( getClass() );
+//        if ( logger.isDebugEnabled() )
+//        {
+//            this.lockOrigin = t.getStackTrace();
+//        }
+//        else
+//        {
+//            this.lockOrigin = null;
+//        }
 
         increment( ownerName, label );
     }
@@ -117,7 +120,7 @@ final class LockOwner
     @Override
     public String toString()
     {
-        return String.format( "LockOwner [%s]\n  %s", super.hashCode(),
+        return String.format( "LockOwner [%s] of: %s\n\nOrigin: %s", super.hashCode(), path,
                               lockOrigin == null ? "-suppressed-" : join( lockOrigin, "\n  " ) );
     }
 

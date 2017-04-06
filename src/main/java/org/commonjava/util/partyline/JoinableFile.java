@@ -34,6 +34,7 @@ import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static org.commonjava.util.partyline.FileTree.DEFAULT_LOCK_TIMEOUT;
 
@@ -110,6 +111,7 @@ public final class JoinableFile
         target.getParentFile().mkdirs();
 
         Logger logger = LoggerFactory.getLogger( getClass() );
+        logger.trace( "Trying to initialize JoinableFile to: {} using operation lock:\n\n{}", target, opLock );
         try
         {
             if ( target.isDirectory() )
@@ -174,7 +176,7 @@ public final class JoinableFile
     InputStream joinStream()
             throws IOException, InterruptedException
     {
-        return opLock.lockAnd( DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, ( lock)->{
+        return lockAnd( (lock)->{
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
@@ -192,6 +194,24 @@ public final class JoinableFile
 
             return result;
         });
+    }
+
+    private <T> T lockAnd(LockedFileOperation<T> op)
+            throws IOException, InterruptedException
+    {
+        boolean locked = false;
+        try
+        {
+            locked = opLock.lock( FileTree.DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS );
+            return op.execute( opLock );
+        }
+        finally
+        {
+            if ( locked )
+            {
+                opLock.unlock();
+            }
+        }
     }
 
     private void checkWritable()
@@ -240,7 +260,7 @@ public final class JoinableFile
     {
         try
         {
-            opLock.lockAnd( DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, (lock)->{
+            lockAnd( (lock)->{
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 if ( closed )
                 {
@@ -283,61 +303,72 @@ public final class JoinableFile
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "Really closing JoinableFile: {}", path );
-        if ( callbacks != null )
-        {
-            logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
-            callbacks.beforeClose();
-        }
 
-        joinable = false;
-
-        if ( output != null )
+        try
         {
-            logger.trace( "Setting length of: {} to written length: {}", path, flushed );
-            randomAccessFile.setLength( flushed );
-        }
-
-        // if the channel is null, this is a directory lock.
-        if ( channel != null )
-        {
-            logger.trace( "Closing underlying channel / random-access file..." );
-            try
-            {
-                if ( channel.isOpen() )
+            lockAnd((lock)->{
+                if ( channel != null )
                 {
-                    fileLock.release();
-                    channel.close();
+                    channel.force( true );
+                }
+
+                if ( callbacks != null )
+                {
+                    logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
+                    callbacks.beforeClose();
+                }
+
+                joinable = false;
+
+                if ( output != null )
+                {
+                    logger.trace( "Setting length of: {} to written length: {}", path, flushed );
+                    randomAccessFile.setLength( flushed );
+                }
+
+                // if the channel is null, this is a directory lock.
+                if ( channel != null )
+                {
+                    logger.trace( "Closing underlying channel / random-access file..." );
+                    try
+                    {
+                        if ( channel.isOpen() )
+                        {
+                            fileLock.release();
+                            channel.close();
+                        }
+                        else
+                        {
+                            logger.trace( "Channel was not open..." );
+                        }
+
+                        randomAccessFile.close();
+                    }
+                    catch ( ClosedChannelException e )
+                    {
+                        logger.debug( "Lock release failed on closed channel.", e );
+                    }
                 }
                 else
                 {
-                    logger.trace( "Channel was not open..." );
+                    logger.trace( "Channel already closed..." );
                 }
 
-                randomAccessFile.close();
-            }
-            catch ( ClosedChannelException e )
-            {
-                logger.debug( "Lock release failed on closed channel.", e );
-            }
+                logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
+                              Thread.currentThread().getName() );
+
+                if ( callbacks != null )
+                {
+                    logger.trace( "calling closed() on callbacks: {}", callbacks );
+                    callbacks.closed();
+                }
+
+                return null;
+            });
         }
-        else
+        catch ( InterruptedException e )
         {
-            logger.trace( "Channel already closed..." );
-        }
-
-        logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
-                      Thread.currentThread().getName() );
-
-        // FIXME: This should NEVER be unlocked!!
-        //        if ( lock.isLocked() )
-        //        {
-        //        lock.clearLocks();
-        //        }
-
-        if ( callbacks != null )
-        {
-            logger.trace( "calling closed() on callbacks: {}", callbacks );
-            callbacks.closed();
+            logger.error( "Interrupted while closing: " + path, e );
         }
     }
 
@@ -350,7 +381,7 @@ public final class JoinableFile
     {
         try
         {
-            opLock.lockAnd( DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS, (lock)->{
+            lockAnd( (lock)->{
                 inputs.remove( input.hashCode() );
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
