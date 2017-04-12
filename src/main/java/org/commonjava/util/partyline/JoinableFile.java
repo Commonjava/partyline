@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.io.SyncFailedException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
@@ -67,7 +68,7 @@ public final class JoinableFile
 
     private final FileChannel channel;
 
-    private final FileLock fileLock;
+//    private final FileLock fileLock;
 
     private final JoinableOutputStream output;
 
@@ -135,7 +136,7 @@ public final class JoinableFile
                 output = null;
                 randomAccessFile = null;
                 channel = null;
-                fileLock = null;
+//                fileLock = null;
                 joinable = false;
             }
             else if ( doOutput )
@@ -144,7 +145,7 @@ public final class JoinableFile
                 output = new JoinableOutputStream();
                 randomAccessFile = new RandomAccessFile( target, "rws" );
                 channel = randomAccessFile.getChannel();
-                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
+//                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
             }
             else
             {
@@ -154,7 +155,7 @@ public final class JoinableFile
                 flushed = target.length();
                 randomAccessFile = new RandomAccessFile( target, "r" );
                 channel = randomAccessFile.getChannel();
-                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
+//                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
             }
         }
         catch ( OverlappingFileLockException e )
@@ -336,7 +337,7 @@ public final class JoinableFile
                     {
                         if ( channel.isOpen() )
                         {
-                            fileLock.release();
+//                            fileLock.release();
                             channel.close();
                         }
                         else
@@ -345,6 +346,11 @@ public final class JoinableFile
                         }
 
                         randomAccessFile.close();
+                        randomAccessFile.getFD().sync();
+                    }
+                    catch ( SyncFailedException e )
+                    {
+                        logger.warn( "System buffers MAY NOT be flushed for closed file: " + path, e );
                     }
                     catch ( ClosedChannelException e )
                     {
