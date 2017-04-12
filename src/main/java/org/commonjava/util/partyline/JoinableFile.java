@@ -39,16 +39,31 @@ import java.util.function.Supplier;
 import static org.commonjava.util.partyline.FileTree.DEFAULT_LOCK_TIMEOUT;
 
 /**
- * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
- * and retrieve {@link InputStream} instances that can read the content as it becomes available. The {@link InputStream}s that are generated are tuned
- * to wait for content until the associated {@link JoinableFile} notifies them that it is closed.
+ * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
+ * management of the read and write locations. Writes go to an in-memory buffer (8kb as of this writing, see CHUNK_SIZE)
+ * then get flushed to the channel. Reads will read from the channel until they get to the last flushed point of the
+ * writer, then they read from the in-memory buffer. Finally, when readers have read all the way through the in-memory
+ * buffer and catch up with the writer, they wait for new input to be added to the buffer.
+ * <br/>
+ * {@link JoinableFile} instances keep a reference count of readers + writer (if there is one), and will not completely
+ * close until all associated reader/writer streams close. When it does close, it uses {@link FileTree}'s internal
+ * FileTreeCallbacks instance (passed into the constructor) to close any remaining wayward locks and cleanup the associated
+ * state.
+ * <br/>
+ * <b>NOTE:</b> If the first access initializing a {@link JoinableFile} is a read operation, the flushed byte count is
+ * set to the length of the file, and the in-memory buffer isn't used.
+ * <br/>
+ * <b>NOTE 2:</b> If the file is a directory, this {@link JoinableFile} is instantiated as a dummy that doesn't allow
+ * anything to read / write.
+ * <br/>
+ * <b>NOTE 3:</b> This implementation uses NIO {@link FileLock} to try to lock the underlying filesystem.
  *
  * @author jdcasey
  */
 public final class JoinableFile
         implements AutoCloseable, Closeable
 {
-    private static final int CHUNK_SIZE = 1024 * 1024; // 1 mb
+    private static final int CHUNK_SIZE = 1024 * 8; // 8kb
 
     private final FileChannel channel;
 
@@ -196,13 +211,26 @@ public final class JoinableFile
         });
     }
 
+    /**
+     * Lock the {@link java.util.concurrent.locks.ReentrantLock} instance embedded in this {@link JoinableFile}, then
+     * execute the given operation. This prevents more than one thread from executing operations against state associated
+     * with the file this {@link JoinableFile} manages.
+     *
+     * @param op The operation to execute, once the operation lock is acquired
+     * @param <T> The result type of the given operation
+     * @return The result of operation execution
+     * @throws IOException
+     * @throws InterruptedException
+     *
+     * @see FileTree#withOpLock(File, LockedFileOperation) for associated logic
+     */
     private <T> T lockAnd(LockedFileOperation<T> op)
             throws IOException, InterruptedException
     {
         boolean locked = false;
         try
         {
-            locked = opLock.lock( FileTree.DEFAULT_LOCK_TIMEOUT, TimeUnit.MILLISECONDS );
+            locked = opLock.lock();
             return op.execute( opLock );
         }
         finally
@@ -214,15 +242,6 @@ public final class JoinableFile
         }
     }
 
-    private void checkWritable()
-            throws IOException
-    {
-        if ( output == null )
-        {
-            throw new IOException( "JoinableFile is not writable!" );
-        }
-    }
-
     /**
      * Write locks happen when either a directory is locked, or the file was locked with doOutput == true.
      */
@@ -231,23 +250,6 @@ public final class JoinableFile
         // if the channel is null, this is a directory lock.
         return channel == null || output != null;
     }
-
-//    void forceClose()
-//            throws IOException, InterruptedException
-//    {
-//        opLock.lockAnd( (lock)->{
-//            Logger logger = LoggerFactory.getLogger( getClass() );
-//            logger.trace( "forceClose() called, closing all open inputs..." );
-//            new HashMap<>(inputs).forEach( ( k, stream ) -> {
-//                logger.trace("FORCE-CLOSE closing joint: {}", stream.getJointIndex() );
-//                IOUtils.closeQuietly( stream );
-//            } );
-//
-//            logger.trace( "Closing the rest" );
-//            IOUtils.closeQuietly( this );
-//            return null;
-//        } );
-//    }
 
     /**
      * Mark this stream as closed. Don't close the underlying channel if

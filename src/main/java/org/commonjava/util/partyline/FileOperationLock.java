@@ -37,22 +37,17 @@ final class FileOperationLock
 
     private String locker;
 
-    public boolean lock( long timeout, TimeUnit unit )
+    public boolean lock()
             throws InterruptedException
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
         if ( logger.isTraceEnabled() )
         {
-            logger.trace( "Locking: {} for: {} from:\n\n{}\n\n", this, Thread.currentThread().getName(), join( Thread.currentThread().getStackTrace(), "\n  " ) );
+            logger.trace( "Locking: {} for: {} from:\n\n{}\n\n", this, Thread.currentThread().getName(),
+                          join( Thread.currentThread().getStackTrace(), "\n  " ) );
         }
 
         lock.lockInterruptibly();
-//        boolean result = lock.tryLock(timeout, unit);
-//        if ( result )
-//        {
-//            this.locker = Thread.currentThread().getName();
-//        }
-//        return result;
 
         logger.trace( "Lock established." );
         return true;
@@ -68,6 +63,7 @@ final class FileOperationLock
                 logger.trace( "Locking: {} (locked by: {}) from:\n\n{}\n\n", this, locker, join( Thread.currentThread().getStackTrace(), "\n  " ) );
             }
 
+            changed.signal();
             lock.unlock();
             locker = null;
 
