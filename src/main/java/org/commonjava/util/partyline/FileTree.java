@@ -221,10 +221,6 @@ final class FileTree
                     }
 
                     entryMap.remove( entry.name );
-                    synchronized ( operationLocks )
-                    {
-                        operationLocks.remove( f.getAbsolutePath() );
-                    }
 
                     opLock.signal();
                     logger.trace( "Unlock succeeded." );
