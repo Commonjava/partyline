@@ -36,24 +36,37 @@ import java.util.stream.Stream;
 import static org.commonjava.util.partyline.LockLevel.read;
 
 /**
- * Created by jdcasey on 8/18/16.
+ * Maintains access to files in partyline. This class restricts operations to prohibit concurrent operations on the same
+ * path at the same time, where 'operation' means opening a file, deleting a file, or locking/unlocking a file. It also
+ * provides methods for extracting or logging information about the file locks that are currently active.
  */
 final class FileTree
 {
 
-    private static final long DEFAULT_LOCK_TIMEOUT = 5000;
+    public static final long DEFAULT_LOCK_TIMEOUT = 5000;
 
     private static final long WAIT_TIMEOUT = 100;
 
     private final Map<String, FileEntry> entryMap = new ConcurrentHashMap<>();
 
-    private final Map<String, FileOperationLock> operationLocks = new WeakHashMap<>();
+    private final Map<String, FileOperationLock> operationLocks = new ConcurrentHashMap<>();
 
+    /**
+     * Iterate all {@link FileEntry instances} to extract information about active locks.
+     *
+     * @param fileConsumer The operation to extract information from a single active file.
+     */
     void forAll( Consumer<JoinableFile> fileConsumer )
     {
         forAll( entry -> entry.file != null, entry->fileConsumer.accept( entry.file ) );
     }
 
+    /**
+     * Iterate all {@link FileEntry instances} to extract information about active locks.
+     *
+     * @param predicate The selector determining which files to analyze.
+     * @param fileConsumer The operation to extract information from a single active file.
+     */
     void forAll( Predicate<? super FileEntry> predicate, Consumer<FileEntry> fileConsumer )
     {
         TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
@@ -65,6 +78,9 @@ final class FileTree
         } );
     }
 
+    /**
+     * Render the active files as a tree structure, for output to a log file or other string-oriented output.
+     */
     String renderTree()
     {
         StringBuilder sb = new StringBuilder();
@@ -86,6 +102,12 @@ final class FileTree
         return sb.toString();
     }
 
+    /**
+     * Retrieve the {@link LockLevel} for the given file. This corresponds to the highest level of access currently
+     * granted for this file.
+     *
+     * @see LockLevel
+     */
     LockLevel getLockLevel( File file )
     {
         FileEntry entry = getLockingEntry( file );
@@ -103,6 +125,13 @@ final class FileTree
         }
     }
 
+    /**
+     * (Manually) unlock a file for a given ownership label. The label allows the system to avoid unlocking for other
+     * active threads that might still be using the file.
+     * @param f The file to unlock
+     * @param ownerName The ownership label to remove from the active locks on the file
+     * @return true if the file has no remaining locks after unlocking for this owner; false otherwise
+     */
     boolean unlock( File f, String ownerName )
     {
         try
@@ -112,8 +141,6 @@ final class FileTree
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
                 {
-                    //            synchronized ( entry )
-                    //            {
                     logger.trace( "Unlocking {} (owner: {})", f, ownerName );
                     if ( entry.lock.unlock( ownerName ) )
                     {
@@ -127,16 +154,17 @@ final class FileTree
 
                         entryMap.remove( entry.name );
 
-                        //                    entry.notifyAll();
                         opLock.signal();
                         logger.trace( "Unlock succeeded." );
                         return true;
                     }
                     else
                     {
-                        logger.trace( "{} Unlock request failed: Remaining locks:\n\n{}", ownerName, entry.lock.getLockInfo() );
+                        logger.trace( "{} Request did not completely unlock file. Remaining locks:\n\n{}", ownerName,
+                                      entry.lock.getLockInfo() );
+                        opLock.signal();
+                        return false;
                     }
-                    //            }
                 }
                 else
                 {
@@ -144,8 +172,7 @@ final class FileTree
                 }
 
                 opLock.signal();
-                logger.trace( "Unlock failed." );
-                return false;
+                return true;
             } );
         }
         catch ( IOException e )
@@ -162,17 +189,27 @@ final class FileTree
         return false;
     }
 
-    private boolean clearLocks( File f )
+    /**
+     * In certain cases, when an operation completes we cannot retain any locks on the file. This method clears all
+     * remaining locks and releases the file from the active-locked mapping. The cases where this is important:
+     *
+     * <ul>
+     *     <li>When the entire {@link JoinableFile} instance (which manages read and write operations) is closing</li>
+     *     <li>When the completing operation locked a file for deletion</li>
+     *     <li>When we've just established the first lock on a file, then the operation acquiring this lock fails.</li>
+     * </ul>
+     *
+     * @param f The file whose locks should be cleared
+     */
+    private void clearLocks( File f )
     {
         try
         {
-            return withOpLock( f, ( opLock ) -> {
+            withOpLock( f, ( opLock ) -> {
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
                 {
-                    //            synchronized ( entry )
-                    //            {
                     logger.trace( "Unlocking {}", f );
                     entry.lock.clearLocks();
                     logger.trace( "Unlocked; clearing resources associated with lock" );
@@ -185,11 +222,8 @@ final class FileTree
 
                     entryMap.remove( entry.name );
 
-                    //                    entry.notifyAll();
                     opLock.signal();
                     logger.trace( "Unlock succeeded." );
-                    return true;
-                    //            }
                 }
                 else
                 {
@@ -197,8 +231,7 @@ final class FileTree
                 }
 
                 opLock.signal();
-                logger.trace( "Unlock failed." );
-                return false;
+                return null;
             } );
         }
         catch ( IOException e )
@@ -211,10 +244,24 @@ final class FileTree
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.warn( "Interrupted while trying to unlock: " + f );
         }
-
-        return false;
     }
 
+    /**
+     * Acquire the given {@link LockLevel} on the specified file, under the provided ownership name and activity label,
+     * within the given timeout. This is used to manually lock a file from outside.
+     *
+     * @param file The file to lock
+     * @param ownerName The owner name to use, when tracking / releasing active locks
+     * @param label The activity label, to aid in debugging stuck locks
+     * @param lockLevel The type of lock to acquire (read, write, delete)
+     * @param timeout The timeout period before giving up on the lock acquisition
+     * @param unit The time units for the timeout period (milliseconds, etc)
+     * @return true if the file was locked as specified, otherwise false
+     * @throws InterruptedException
+     *
+     * @see JoinableFileManager#lock(File, long, LockLevel, String)
+     * @see LockLevel
+     */
     boolean tryLock( File file, String ownerName, String label, LockLevel lockLevel, long timeout, TimeUnit unit )
             throws InterruptedException
     {
@@ -231,6 +278,29 @@ final class FileTree
         return false;
     }
 
+    /**
+     * Acquire the given {@link LockLevel} on the specified file, under the provided ownership name and activity label,
+     * within the given timeout. If lock acquisition succeeds, execute the provided operation (normally a lambda).
+     * <br/>
+     * This method is used within FileTree to handle file lock acquisition before opening / deleting files, among other
+     * things.
+     * <br/>
+     * <b>NOTE:</b> Before attempting to acquire the file lock, this method will acquire the operation semaphore for
+     * the given file. This prevents other concurrent calls from overlapping when establishing the first lock on a file,
+     * or when releasing the last lock.
+     *
+     * @param f The file to lock
+     * @param ownerName The owner name to use, when tracking / releasing active locks
+     * @param label The activity label, to aid in debugging stuck locks
+     * @param lockLevel The type of lock to acquire (read, write, delete)
+     * @param timeout The timeout period before giving up on the lock acquisition
+     * @param unit The time units for the timeout period (milliseconds, etc)
+     * @param operation The operation to perform once the file lock is acquired
+     * @return the result of the provided operation, or else null
+     * @throws InterruptedException
+     *
+     * @see LockLevel
+     */
     private <T> T tryLock( File f, String ownerName, String label, LockLevel lockLevel, long timeout, TimeUnit unit,
                            LockedFileOperation<T> operation )
             throws InterruptedException, IOException
@@ -272,8 +342,6 @@ final class FileTree
                     }
                     else
                     {
-                        //                synchronized ( entry )
-                        //                {
                         if ( entry.name.equals( f.getAbsolutePath() ) )
                         {
                             if ( entry.lock.lock( ownerName, label, lockLevel ) )
@@ -297,9 +365,7 @@ final class FileTree
                         }
 
                         logger.trace( "Waiting for lock to clear; locking as: {} from: {}", lockLevel, label );
-                        //                    entry.wait( 100 );
                         opLock.await( WAIT_TIMEOUT );
-                        //                }
                     }
                 }
             }
@@ -308,6 +374,7 @@ final class FileTree
                 // no matter what else happens, do NOT allow a delete lock to remain
                 if ( entry != null && entry.lock.getLockLevel() == LockLevel.delete && entry.lock.isLocked() )
                 {
+                    logger.trace( "Clearing locks on delete-locked file entry: {}", f );
                     clearLocks( f );
                 }
             }
@@ -317,6 +384,27 @@ final class FileTree
         } );
     }
 
+    /**
+     * Establish a Stream (input or output) associated with a given file. This method will acquire the appropriate lock
+     * for the file (using {@link #tryLock(File, String, String, LockLevel, long, TimeUnit, LockedFileOperation)}) and
+     * then retrieve the {@link JoinableFile} instance associated with the file (or create it if necessary). Finally,
+     * it passes the JoinableFile to the given {@link JoinFileOperation} to establish the appropriate stream into / out
+     * of that file.
+     *
+     * @param realFile The file to open
+     * @param callbacks A set of callback operations that can respond to the file being closed or flushed, normally
+     *                  used for accounting.
+     * @param doOutput If true, the associated function should return an {@link java.io.OutputStream}; else {@link java.io.InputStream}
+     * @param timeout The period to wait in attempting to acquire the appropriate file lock
+     * @param unit The time unit for the timeout period
+     * @param function The function that establishes the appropriate stream into the {@link JoinableFile}
+     * @param <T> The type of stream returned from the given {@link JoinFileOperation}; output if doOutput is true, else input
+     * @return The established stream associated with the given file
+     * @throws IOException
+     * @throws InterruptedException
+     *
+     * @see #tryLock(File, String, String, LockLevel, long, TimeUnit, LockedFileOperation)
+     */
     <T> T setOrJoinFile( File realFile, StreamCallbacks callbacks, boolean doOutput, long timeout,
                                 TimeUnit unit, JoinFileOperation<T> function )
             throws IOException, InterruptedException
@@ -327,8 +415,9 @@ final class FileTree
         while ( end < 1 || System.currentTimeMillis() < end )
         {
             T result = tryLock( realFile, Thread.currentThread().getName(), "Open File for " + ( doOutput ? "output" : "input" ),
-                                           doOutput ? LockLevel.write : read, WAIT_TIMEOUT, unit, ( opLock ) -> {
+                                           doOutput ? LockLevel.write : read, timeout, unit, ( opLock ) -> {
                         FileEntry entry = entryMap.get( realFile.getAbsolutePath() );
+                        boolean proceed = false;
                         if ( entry.file != null )
                         {
                             if ( doOutput )
@@ -350,23 +439,28 @@ final class FileTree
                                 logger.trace( "Waiting for file to close at: {}", System.currentTimeMillis() );
                                 opLock.await( WAIT_TIMEOUT );
 
-                                logger.trace( "Proceeding with lock attempt at: {}", System.currentTimeMillis() );
+                                logger.trace( "Proceeding with lock attempt at: {} under opLock: {}", System.currentTimeMillis(), opLock );
                             }
                             else
                             {
                                 logger.trace( "Got joinable file" );
-                                return function.execute( entry.file );
+                                proceed = true;
                             }
                         }
                         else
                         {
-                            logger.trace( "No pre-existing open file; opening" );
-                            JoinableFile joinableFile = new JoinableFile( realFile, entry.lock,
-                                                                          new FileTreeCallbacks( callbacks, entry,
-                                                                                                 realFile ), doOutput, opLock );
+                            logger.trace( "No pre-existing open file; opening new JoinableFile under opLock: {}", opLock );
+                            entry.file = new JoinableFile( realFile, entry.lock,
+                                                           new FileTreeCallbacks( callbacks, entry,
+                                                                                  realFile ),
+                                                           doOutput, opLock );
 
-                            entry.file = joinableFile;
-                            return function.execute( joinableFile );
+                            proceed = true;
+                        }
+
+                        if ( proceed )
+                        {
+                            return function.execute( entry.file );
                         }
 
                         return null;
@@ -382,6 +476,19 @@ final class FileTree
         return function.execute( null );
     }
 
+    /**
+     * Attempt to establish a delete lock on the given file, then delete it. Timeout if the specified period expires
+     * without delete lock acquisition.
+     *
+     * @param file The file to lock
+     * @param timeout The period to wait for a delete lock
+     * @param unit The time unit for the timeout period
+     * @return true if the delete lock was successful and the file was force-deleted; false otherwise
+     * @throws InterruptedException
+     * @throws IOException
+     *
+     * @see #tryLock(File, String, String, LockLevel, long, TimeUnit, LockedFileOperation)
+     */
     boolean delete( File file, long timeout, TimeUnit unit )
             throws InterruptedException, IOException
     {
@@ -401,7 +508,20 @@ final class FileTree
         } ) == Boolean.TRUE;
     }
 
-    private FileEntry getLockingEntry( File file )
+    /**
+     * When trying to lock a file, we first must ensure that no directory further up the hierarchy is already locked with
+     * a more restrictive lock. If we're trying to lock a directory, we also must ensure that no child directory/file
+     * is locked with a more restrictive lock. This method checks for those cases, and returns the {@link FileEntry}
+     * from the ancestry or descendent files/directories that is already locked.
+     *
+     * This should prevent us from deleting a directory when a child file within that directory structure is being read
+     * or written. Likewise, it should prevent us from reading or writing a file in a directory already locked for
+     * deletion.
+     *
+     * @param file The file whose context directories / files should be checked for locks
+     * @return The nearest {@link FileEntry}, corresponding to a locked file. Parent directories returned before children.
+     */
+    private synchronized FileEntry getLockingEntry( File file )
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
         FileEntry entry;
@@ -441,24 +561,77 @@ final class FileTree
         return null;
     }
 
+    /**
+     * Use a {@link java.util.concurrent.locks.ReentrantLock} keyed to the absolute path of the specified file to ensure
+     * only one operation at a time manipulates the accounting information associated with the file ({@link FileEntry}).
+     *
+     * This method synchronizes on the operationLocks map in order to retrieve / create the ReentrantLock lazily. Once
+     * created, this ReentrantLock also gets propagated into the {@link JoinableFile} instance created for the file.
+     *
+     * Using ReentrantLock per path avoids the need to hold a lock on the whole tree every time we need to initialize
+     * the {@link FileEntry} for a new file. Instead, we take a short lock on operationLocks to get the ReentrantLock,
+     * then use the ReentrantLock for the longer operations required to initialize a file, open a stream, delete a file,
+     * close a file, etc.
+     *
+     * @param f The file that is the subject of the operation we want to execute
+     * @param op The operation to execute, once we've locked the ReentrantLock associated with the file
+     * @param <T> The result type of the specified operation
+     * @return the result of the specified operation
+     * @throws IOException
+     * @throws InterruptedException
+     */
     private <T> T withOpLock( File f, LockedFileOperation<T> op )
             throws IOException, InterruptedException
     {
+        Logger logger = LoggerFactory.getLogger( getClass() );
         String path = f.getAbsolutePath();
-        FileOperationLock opLock;
-        synchronized ( operationLocks )
+        FileOperationLock opLock = null;
+
+        try
         {
-            opLock = operationLocks.get( path );
-            if ( opLock == null )
+            synchronized ( operationLocks )
             {
-                opLock = new FileOperationLock();
-                operationLocks.put( path, opLock );
+                opLock = operationLocks.computeIfAbsent( path, k ->
+                {
+                    FileOperationLock lock = new FileOperationLock();
+
+                    logger.trace( "Initializing new FileOperationLock: {} for path: {}", lock, path );
+                    return lock;
+                } );
+
+                logger.trace( "Using FileOperationLock: {} for path: {}", opLock, path );
+
+            }
+
+            if ( !opLock.lock() )
+            {
+                throw new IOException(
+                        "Failed to acquire operational lock for: " + path + " using opLock: " + opLock
+                                + " (currently locked by: " + opLock.getLocker() + ")" );
+            }
+
+            logger.trace( "Locked FileOperationLock: {} for path: {}. Proceeding with file operation.", opLock, path );
+
+            return op.execute( opLock );
+        }
+        finally
+        {
+            try
+            {
+                opLock.unlock();
+            }
+            catch ( Throwable t )
+            {
+                logger.error( "Failed to unlock: " + path, t );
             }
         }
-
-        return opLock.lockAnd( op );
     }
 
+    /**
+     * Class which manages the state associated with files and {@link JoinableFile}s in partyline. These keep the lock
+     * associated with a path and a {@link JoinableFile}, even when there is no JoinableFile yet. They are mapped to the
+     * path to allow concurrent operations to access this state and open additional (reader) streams, etc.
+     */
     static final class FileEntry
     {
         private final String name;
@@ -467,19 +640,17 @@ final class FileTree
 
         private JoinableFile file;
 
-        FileEntry( String name, String lockingLabel, LockLevel lockLevel )
-        {
-            this.name = name;
-            this.lock = new LockOwner( Thread.currentThread().getName(), lockingLabel, lockLevel );
-        }
-
         FileEntry( String name, String lockingLabel, LockLevel lockLevel, String ownerName )
         {
             this.name = name;
-            this.lock = new LockOwner( ownerName, lockingLabel, lockLevel );
+            this.lock = new LockOwner( name, ownerName, lockingLabel, lockLevel );
         }
     }
 
+    /**
+     * {@link StreamCallbacks} implementation which can wrap another instance passed into {@link FileTree} operations,
+     * and which takes care of clearing all locks on a file when the {@link JoinableFile} is finally closed.
+     */
     private final class FileTreeCallbacks
             implements StreamCallbacks
     {
@@ -512,13 +683,6 @@ final class FileTree
             {
                 callbacks.beforeClose();
             }
-
-            //            synchronized( entry )
-            //            {
-            //                //            FileTree.this.lock.lock();
-            //                entry.file = null;
-            //                //            FileTree.this.lock.unlock();
-            //            }
         }
 
         @Override
@@ -532,32 +696,26 @@ final class FileTree
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "unlocking: {}", file );
 
-            try
-            {
-                withOpLock( file, ( opLock ) -> {
-                    entry.file = null;
-                    clearLocks( file );
-                    return null;
-                } );
-            }
-            catch ( IOException e )
-            {
-                logger.error( "Failed to mark as closed: " + e.getMessage(), e );
-            }
-            catch ( InterruptedException e )
-            {
-                logger.error( "Interrupted while marking as closed." );
-            }
-            //            //            synchronized ( entry )
-            //            synchronized ( FileTree.this )
-            //            {
-            //                entry.file = null;
-            //                FileTree.this.clearLocks( file );
-            //            }
+            // already inside lock from JoinableFile.reallyClose().
+            entry.file = null;
+
+            // the whole JoinableFile is closing. Clear remaining locks.
+            clearLocks( file );
         }
     }
 
-     @FunctionalInterface
+    /**
+     * Operation that returns a stream (InputStream or OutputStream) from a {@link JoinableFile}. This is used from
+     * {@link JoinableFileManager#openInputStream(File, long)} and {@link JoinableFileManager#openOutputStream(File, long)}
+     * via {@link FileTree#setOrJoinFile(File, StreamCallbacks, boolean, long, TimeUnit, JoinFileOperation)}.
+     *
+     * @param <T> The stream result.
+     *
+     * @see JoinableFileManager#openInputStream(File, long)
+     * @see JoinableFileManager#openOutputStream(File, long)
+     * @see FileTree#setOrJoinFile(File, StreamCallbacks, boolean, long, TimeUnit, JoinFileOperation)
+     */
+    @FunctionalInterface
     interface JoinFileOperation<T>
     {
         T execute( JoinableFile file )

@@ -48,28 +48,6 @@ public class JoinableFileManager
 
     public static final long DEFAULT_TIMEOUT = 1000;
 
-    private static final long DEFAULT_FILETREE_TIMEOUT = 100;
-
-    private static final String WAIT_FOR_WRITE_UNLOCK = "waitForWriteUnlock";
-
-    private static final String WITH_TIMEOUT = " (with timeout)";
-
-    private static final String IS_WRITE_LOCKED = "isWriteLocked";
-
-    private static final String UNLOCK = "unlock";
-
-    private static final String LOCK = "lock";
-
-    private static final String OPEN_INPUT_STREAM = "openInputStream";
-
-    private static final String OPEN_OUTPUT_STREAM = "openOutputStream";
-
-    private static final String GET_ACTIVE_LOCKS = "getActiveLocks";
-
-    private static final String CLEANUP_CURRENT_THREAD = "cleanupCurrentThread";
-
-    private static final String DELETE = "delete";
-
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
     private final FileTree locks = new FileTree();
@@ -88,6 +66,13 @@ public class JoinableFileManager
         return locks;
     }
 
+    /**
+     * This method is used to cleanup after an operation, just to be double sure we don't complete a request and leave
+     * file streams open. This file manager is designed to work in an environment where a stream may be handed off to
+     * a separate thread for reading / writing, while the original thread does something else. However, when all threads
+     * related to a particular call or user request are finished, we need to ensure that request gets cleaned up. This
+     * method enables that.
+     */
     public void cleanupCurrentThread()
     {
         ThreadContext context = ThreadContext.getContext( false );
@@ -116,61 +101,25 @@ public class JoinableFileManager
                 }
             } );
         }
-//        final long id = Thread.currentThread().getId();
-//        locks.forFilesOwnedBy( id, CLEANUP_CURRENT_THREAD, ( jf ) -> {
-//            final StringBuilder sb = new StringBuilder();
-//            LockOwner owner = jf.getLockOwner();
-//            sb.append( "CLEARING ORPHANED LOCK:\nFile: " )
-//              .append( jf )
-//              .append( "\nOwned by thread: " )
-//              .append( owner.getThreadName() )
-//              .append( " (ID: " )
-//              .append( owner.getThreadId() )
-//              .append( ")" )
-//              .append( "\nLock Info:\n  " )
-//              .append( owner.getLockInfo() )
-//              .append( "\n\nLock type: " )
-//              .append( jf.isWriteLocked() ? "WRITE" : "READ" )
-//              .append( "\nLocked at:\n" );
-//
-//            StackTraceElement[] lockOrigin = owner.getLockOrigin();
-//            if ( lockOrigin != null )
-//            {
-//                for ( final StackTraceElement elt : lockOrigin )
-//                {
-//                    sb.append( "\n  " ).append( elt );
-//                }
-//            }
-//
-//            sb.append( "\n\n" );
-//
-//            logger.warn( sb.toString() );
-//
-//            try
-//            {
-//                jf.forceClose();
-//            }
-//            catch ( IOException e )
-//            {
-//                logger.warn( String.format( "Failed to force-close: %s. Reason: %s", jf.getPath(), e.getMessage() ), e );
-//            }
-//            catch ( InterruptedException e )
-//            {
-//                logger.warn( "Interrupted while cleaning up resources owned by thread: {}", Thread.currentThread().getName() );
-//                return false;
-//            }
-//
-//            logger.trace( "After cleanup, lock info is: {}", jf.getLockOwner().getLockInfo() );
-//
-//            return true;
-//        } );
     }
 
+    /**
+     * Begin periodic reporting (to log output) on active file locks in the system. This is intended to make it easier
+     * to see when things are being left active even after the call that initiated them is complete.
+     */
     public synchronized void startReporting()
     {
         startReporting( 0, 10000 );
     }
 
+    /**
+     * Begin periodic reporting (to log output) on active file locks in the system. This is intended to make it easier
+     * to see when things are being left active even after the call that initiated them is complete.
+     *
+     * This variant gives the embedding system more control over how often the report happens.
+     * @param delay in milliseconds, the initial delay before reporting
+     * @param period in milliseconds, the periodic delay between reports
+     */
     public synchronized void startReporting( final long delay, final long period )
     {
         if ( reporter == null )
@@ -182,6 +131,11 @@ public class JoinableFileManager
         }
     }
 
+    /**
+     * Turn off periodic reporting of active file locks.
+     *
+     * @see #startReporting()
+     */
     public synchronized void stopReporting()
     {
         if ( reporter != null )
@@ -191,6 +145,11 @@ public class JoinableFileManager
         }
     }
 
+    /**
+     * Retrieve information about the active file locks in the system.
+     *
+     * @return Map of File to information about the locks pertaining to that file.
+     */
     public Map<File, CharSequence> getActiveLocks()
     {
         final Map<File, CharSequence> active = new HashMap<>();
@@ -225,7 +184,8 @@ public class JoinableFileManager
     }
 
     /**
-     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to the user.
+     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to
+     * the user.
      */
     public OutputStream openOutputStream( final File file )
             throws IOException, InterruptedException
@@ -234,7 +194,8 @@ public class JoinableFileManager
     }
 
     /**
-     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to the user. If the file is locked, wait for the specified milliseconds before giving up.
+     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to
+     * the user. If the file is locked, wait for the specified milliseconds before giving up.
      */
     public OutputStream openOutputStream( final File file, final long timeout )
             throws IOException, InterruptedException
@@ -255,12 +216,21 @@ public class JoinableFileManager
         return stream;
     }
 
+    /**
+     * Delete the given file, waiting until the file can be locked for deletion
+     */
     public boolean tryDelete( File file )
             throws IOException, InterruptedException
     {
         return tryDelete( file, -1 );
     }
 
+    /**
+     * Delete the given file, waiting until the file can be locked for deletion
+     *
+     * @param file The file to delete
+     * @param timeout Timeout (milliseconds) for attempt to lock file for deletion
+     */
     public boolean tryDelete( File file, long timeout )
             throws IOException, InterruptedException
     {
@@ -271,9 +241,8 @@ public class JoinableFileManager
     }
 
     /**
-     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user. Otherwise, open
-     * a new {@link FileInputStream} to the specified file, wrap it in a {@link CallbackInputStream} to notify this manager when it closes, and pass
-     * the result back to the user.
+     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user.
+     * Otherwise, open a new {@link FileInputStream} to the specified file and pass the result back to the user.
      */
     public InputStream openInputStream( final File file )
             throws IOException, InterruptedException
@@ -282,9 +251,9 @@ public class JoinableFileManager
     }
 
     /**
-     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user. Otherwise, open
-     * a new {@link FileInputStream} to the specified file, wrap it in a {@link CallbackInputStream} to notify this manager when it closes, and pass
-     * the result back to the user. If the file is locked for reads, wait for the specified milliseconds before giving up.
+     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user.
+     * Otherwise, open a new {@link FileInputStream} to the specified file and pass the result back to the user. If the
+     * file is locked for reads, wait for the specified milliseconds before giving up.
      */
     public InputStream openInputStream( final File file, final long timeout )
             throws IOException, InterruptedException
@@ -320,6 +289,13 @@ public class JoinableFileManager
         return stream;
     }
 
+    /**
+     * Add the specified file path (and stream/closeable) to the map attached to the current {@link ThreadContext}
+     * instance. This will enable {@link #cleanupCurrentThread()} later.
+     *
+     * @param name The file path / usage key to track
+     * @param closeable The stream / other closeable to track for cleanup
+     */
     private void addToContext( String name, Closeable closeable )
     {
         logger.info( "Adding {} to closeable set in ThreadContext", name );
@@ -339,6 +315,11 @@ public class JoinableFileManager
 
     /**
      * Manually lock the specified file to prevent opening any streams via this manager (until manually unlocked).
+     *
+     * @param file The file to lock
+     * @param timeout Timeout (milliseconds) to wait in acquiring the lock; fail if this expires without a lock
+     * @param lockLevel The type of lock to acquire (read, write, delete)
+     * @param operationName A label for the operation, to aid in debugging of stuck active locks.
      */
     public boolean lock( final File file, long timeout, LockLevel lockLevel, String operationName )
             throws InterruptedException
@@ -353,6 +334,9 @@ public class JoinableFileManager
     /**
      * If the specified file was manually locked, unlock it and return the state of locks remaining on the file.
      * Return true if the file is unlocked, false if locks remain.
+     *
+     * @see #lock(File, long, LockLevel, String)
+     * @see LockLevel
      */
     public boolean unlock( final File file, String operationName )
     {
@@ -372,7 +356,10 @@ public class JoinableFileManager
     }
 
     /**
-     * Check if the specified file is locked against write operations. Files are write-locked if any other file access is active.
+     * Check if the specified file is locked against write operations. Files are write-locked if any other file access
+     * is active.
+     *
+     * @see LockLevel
      */
     public boolean isWriteLocked( final File file )
     {
@@ -381,6 +368,8 @@ public class JoinableFileManager
 
     /**
      * The only time reads are not allowed is when the file is locked for deletion.
+     *
+     * @see LockLevel
      */
     public boolean isReadLocked( final File file )
     {
@@ -388,8 +377,8 @@ public class JoinableFileManager
     }
 
     /**
-     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
-     * the file becoming available for writes.
+     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false
+     * if the timeout elapses without the file becoming available for writes.
      *
      * @see #isWriteLocked(File)
      */
@@ -400,8 +389,8 @@ public class JoinableFileManager
     }
 
     /**
-     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false if the timeout elapses without
-     * the file becoming available for writes.
+     * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false
+     * if the timeout elapses without the file becoming available for writes.
      *
      * @see #isWriteLocked(File)
      */
@@ -442,8 +431,9 @@ public class JoinableFileManager
     }
 
     /**
-     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
-     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
+     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false
+     * if the timeout elapses without the file becoming available for reads. If a {@link JoinableFile} is available for
+     * the file, don't wait (immediately return true).
      *
      * @see #isReadLocked(File)
      */
@@ -483,8 +473,9 @@ public class JoinableFileManager
     }
 
     /**
-     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false if the timeout elapses without
-     * the file becoming available for reads. If a {@link JoinableFile} is available for the file, don't wait (immediately return true).
+     * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false
+     * if the timeout elapses without the file becoming available for reads. If a {@link JoinableFile} is available for
+     * the file, don't wait (immediately return true).
      *
      * @see #isReadLocked(File)
      */
@@ -494,6 +485,9 @@ public class JoinableFileManager
         return waitForReadUnlock( file, -1 );
     }
 
+    /**
+     * {@link TimerTask} implementation that handles reporting active file locks to the logging output.
+     */
     private final class ReportingTask
             extends TimerTask
     {

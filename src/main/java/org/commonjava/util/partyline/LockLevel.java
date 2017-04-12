@@ -16,7 +16,17 @@
 package org.commonjava.util.partyline;
 
 /**
- * Created by jdcasey on 10/3/16.
+ * Enumerates the types of locks that are allowed on files in partyline. File locks are <b>SOMETIMES</b> non-exclusive.
+ * This locking approach is aimed at allowing concurrent reads, even when a file is currently being written (the entire
+ * purpose of partyline).
+ * <br/>
+ * Lock exclusivity follows these rules:
+ * <ul>
+ *     <li>delete locks are exclusive</li>
+ *     <li>write locks allow concurrent read locks, but <b>not</b> delete locks or other write locks</li>
+ *     <li>a read lock established <b>as the first lock on the stream</b> prohibits both delete and write locks</li>
+ *     <li>read locks allow concurrent read locks</li>
+ * </ul>
  */
 public enum LockLevel
 {

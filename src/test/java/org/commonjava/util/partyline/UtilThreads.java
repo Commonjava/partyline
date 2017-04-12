@@ -74,7 +74,17 @@ public final class UtilThreads
         return reader( k, manager, f, masterLatch, null, null, null );
     }
 
-    public static Runnable reader( int k, JoinableFileManager manager, File f, CountDownLatch masterLatch, CountDownLatch readEndLatch, CountDownLatch readBeginLatch, CountDownLatch deleteEndLatch )
+    public static Runnable reader( int k, JoinableFileManager manager, File f, CountDownLatch masterLatch, boolean binaryContent )
+    {
+        return reader( k, manager, f, masterLatch, null, null, null, binaryContent );
+    }
+
+    public static Runnable reader( int k, JoinableFileManager manager, File f, CountDownLatch masterLatch, CountDownLatch readBeginLatch, CountDownLatch readEndLatch, CountDownLatch deleteEndLatch )
+    {
+        return reader( k, manager, f, masterLatch, readBeginLatch, readEndLatch, deleteEndLatch, true );
+    }
+
+    public static Runnable reader( int k, JoinableFileManager manager, File f, CountDownLatch masterLatch, CountDownLatch readBeginLatch, CountDownLatch readEndLatch, CountDownLatch deleteEndLatch, boolean binaryContent )
     {
         return () -> {
             Thread.currentThread().setName( "openInputStream-" + k );
@@ -110,7 +120,15 @@ public final class UtilThreads
 
             try (InputStream s = manager.openInputStream( f ))
             {
-                System.out.println( Thread.currentThread().getName() + ": " + IOUtils.toString( s ) );
+                if ( binaryContent )
+                {
+                    byte[] data = IOUtils.toByteArray( s );
+                    System.out.println( Thread.currentThread().getName() + ": Read " + data.length + " bytes." );
+                }
+                else
+                {
+                    System.out.println( Thread.currentThread().getName() + ": " + IOUtils.toString( s ) );
+                }
             }
             catch ( Exception e )
             {

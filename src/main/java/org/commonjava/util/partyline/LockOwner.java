@@ -24,6 +24,14 @@ import java.util.Map;
 
 import static org.apache.commons.lang.StringUtils.join;
 
+/**
+ * Maintain information about threads with active locks on a file, along the current lock-level of the file (which
+ * determines what additional operations can be added, once the initial operation is started). This class counts
+ * referents that have locked a file, to determine when a file is completely unlocked (and could be re-locked for
+ * operations that would have been forbidden previously, like deletion).
+ *
+ * @see LockLevel for more information about allowable operations for given lock levels
+ */
 final class LockOwner
 {
 
@@ -33,29 +41,21 @@ final class LockOwner
 
     private String threadName;
 
-    private StackTraceElement[] lockOrigin;
-
     private final Map<String, String> lockRefs = new LinkedHashMap<>();
+
+    private String path;
 
     private final LockLevel lockLevel;
 
-    LockOwner( String ownerName, String label, LockLevel lockLevel )
+    LockOwner( String path, String ownerName, String label, LockLevel lockLevel )
     {
+        this.path = path;
         this.lockLevel = lockLevel;
 
         final Thread t = Thread.currentThread();
         this.threadRef = new WeakReference<>( t );
         this.threadName = t.getName() + "(" + label + ")";
         this.threadId = t.getId();
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        if ( logger.isDebugEnabled() )
-        {
-            this.lockOrigin = t.getStackTrace();
-        }
-        else
-        {
-            this.lockOrigin = null;
-        }
 
         increment( ownerName, label );
     }
@@ -89,24 +89,9 @@ final class LockOwner
         }
     }
 
-    boolean isAlive()
-    {
-        return threadRef.get() != null && threadRef.get().isAlive();
-    }
-
     long getThreadId()
     {
         return threadId;
-    }
-
-    String getThreadName()
-    {
-        return threadName;
-    }
-
-    StackTraceElement[] getLockOrigin()
-    {
-        return lockOrigin;
     }
 
     Thread getThread()
@@ -117,13 +102,7 @@ final class LockOwner
     @Override
     public String toString()
     {
-        return String.format( "LockOwner [%s]\n  %s", super.hashCode(),
-                              lockOrigin == null ? "-suppressed-" : join( lockOrigin, "\n  " ) );
-    }
-
-    boolean isOwnedByCurrentThread()
-    {
-        return threadId == Thread.currentThread().getId();
+        return String.format( "LockOwner [%s] of: %s", super.hashCode(), path );
     }
 
     synchronized CharSequence getLockInfo()
@@ -175,7 +154,6 @@ final class LockOwner
             this.threadId = null;
             this.threadRef.clear();
             this.threadName = null;
-            this.lockOrigin = null;
             return true;
         }
 

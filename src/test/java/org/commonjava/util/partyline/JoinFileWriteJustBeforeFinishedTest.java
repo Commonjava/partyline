@@ -68,7 +68,7 @@ public class JoinFileWriteJustBeforeFinishedTest
         String threadName = "writer" + writers++;
 
         final JoinableFile stream =
-                new JoinableFile( file, new LockOwner( threadName, name.getMethodName(), LockLevel.write ), true );
+                new JoinableFile( file, new LockOwner( file.getAbsolutePath(), threadName, name.getMethodName(), LockLevel.write ), true );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

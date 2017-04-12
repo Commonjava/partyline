@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.io.SyncFailedException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
@@ -33,22 +34,41 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+import static org.commonjava.util.partyline.FileTree.DEFAULT_LOCK_TIMEOUT;
 
 /**
- * {@link OutputStream} implementation backed by a {@link RandomAccessFile} / {@link FileChannel} combination, and allowing multiple callers to "join"
- * and retrieve {@link InputStream} instances that can read the content as it becomes available. The {@link InputStream}s that are generated are tuned
- * to wait for content until the associated {@link JoinableFile} notifies them that it is closed.
+ * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
+ * management of the read and write locations. Writes go to an in-memory buffer (8kb as of this writing, see CHUNK_SIZE)
+ * then get flushed to the channel. Reads will read from the channel until they get to the last flushed point of the
+ * writer, then they read from the in-memory buffer. Finally, when readers have read all the way through the in-memory
+ * buffer and catch up with the writer, they wait for new input to be added to the buffer.
+ * <br/>
+ * {@link JoinableFile} instances keep a reference count of readers + writer (if there is one), and will not completely
+ * close until all associated reader/writer streams close. When it does close, it uses {@link FileTree}'s internal
+ * FileTreeCallbacks instance (passed into the constructor) to close any remaining wayward locks and cleanup the associated
+ * state.
+ * <br/>
+ * <b>NOTE:</b> If the first access initializing a {@link JoinableFile} is a read operation, the flushed byte count is
+ * set to the length of the file, and the in-memory buffer isn't used.
+ * <br/>
+ * <b>NOTE 2:</b> If the file is a directory, this {@link JoinableFile} is instantiated as a dummy that doesn't allow
+ * anything to read / write.
+ * <br/>
+ * <b>NOTE 3:</b> This implementation uses NIO {@link FileLock} to try to lock the underlying filesystem.
  *
  * @author jdcasey
  */
 public final class JoinableFile
         implements AutoCloseable, Closeable
 {
-    private static final int CHUNK_SIZE = 1024 * 1024; // 1 mb
+    private static final int CHUNK_SIZE = 1024 * 8; // 8kb
 
     private final FileChannel channel;
 
-    private final FileLock fileLock;
+//    private final FileLock fileLock;
 
     private final JoinableOutputStream output;
 
@@ -107,6 +127,7 @@ public final class JoinableFile
         target.getParentFile().mkdirs();
 
         Logger logger = LoggerFactory.getLogger( getClass() );
+        logger.trace( "Trying to initialize JoinableFile to: {} using operation lock:\n\n{}", target, opLock );
         try
         {
             if ( target.isDirectory() )
@@ -115,16 +136,16 @@ public final class JoinableFile
                 output = null;
                 randomAccessFile = null;
                 channel = null;
-                fileLock = null;
+//                fileLock = null;
                 joinable = false;
             }
             else if ( doOutput )
             {
                 logger.trace( "INIT: read-write JoinableFile: {}", target );
                 output = new JoinableOutputStream();
-                randomAccessFile = new RandomAccessFile( target, "rw" );
+                randomAccessFile = new RandomAccessFile( target, "rws" );
                 channel = randomAccessFile.getChannel();
-                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
+//                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
             }
             else
             {
@@ -134,7 +155,7 @@ public final class JoinableFile
                 flushed = target.length();
                 randomAccessFile = new RandomAccessFile( target, "r" );
                 channel = randomAccessFile.getChannel();
-                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
+//                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
             }
         }
         catch ( OverlappingFileLockException e )
@@ -171,7 +192,7 @@ public final class JoinableFile
     InputStream joinStream()
             throws IOException, InterruptedException
     {
-        return opLock.lockAnd((lock)->{
+        return lockAnd( (lock)->{
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
@@ -191,12 +212,34 @@ public final class JoinableFile
         });
     }
 
-    private void checkWritable()
-            throws IOException
+    /**
+     * Lock the {@link java.util.concurrent.locks.ReentrantLock} instance embedded in this {@link JoinableFile}, then
+     * execute the given operation. This prevents more than one thread from executing operations against state associated
+     * with the file this {@link JoinableFile} manages.
+     *
+     * @param op The operation to execute, once the operation lock is acquired
+     * @param <T> The result type of the given operation
+     * @return The result of operation execution
+     * @throws IOException
+     * @throws InterruptedException
+     *
+     * @see FileTree#withOpLock(File, LockedFileOperation) for associated logic
+     */
+    private <T> T lockAnd(LockedFileOperation<T> op)
+            throws IOException, InterruptedException
     {
-        if ( output == null )
+        boolean locked = false;
+        try
         {
-            throw new IOException( "JoinableFile is not writable!" );
+            locked = opLock.lock();
+            return op.execute( opLock );
+        }
+        finally
+        {
+            if ( locked )
+            {
+                opLock.unlock();
+            }
         }
     }
 
@@ -209,23 +252,6 @@ public final class JoinableFile
         return channel == null || output != null;
     }
 
-//    void forceClose()
-//            throws IOException, InterruptedException
-//    {
-//        opLock.lockAnd( (lock)->{
-//            Logger logger = LoggerFactory.getLogger( getClass() );
-//            logger.trace( "forceClose() called, closing all open inputs..." );
-//            new HashMap<>(inputs).forEach( ( k, stream ) -> {
-//                logger.trace("FORCE-CLOSE closing joint: {}", stream.getJointIndex() );
-//                IOUtils.closeQuietly( stream );
-//            } );
-//
-//            logger.trace( "Closing the rest" );
-//            IOUtils.closeQuietly( this );
-//            return null;
-//        } );
-//    }
-
     /**
      * Mark this stream as closed. Don't close the underlying channel if
      * there are still open input streams...allow their close methods to trigger that if the ref count drops 
@@ -237,7 +263,7 @@ public final class JoinableFile
     {
         try
         {
-            opLock.lockAnd( (lock)->{
+            lockAnd( (lock)->{
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 if ( closed )
                 {
@@ -280,61 +306,77 @@ public final class JoinableFile
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "Really closing JoinableFile: {}", path );
-        if ( callbacks != null )
-        {
-            logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
-            callbacks.beforeClose();
-        }
 
-        joinable = false;
-
-        if ( output != null )
+        try
         {
-            logger.trace( "Setting length of: {} to written length: {}", path, flushed );
-            randomAccessFile.setLength( flushed );
-        }
-
-        // if the channel is null, this is a directory lock.
-        if ( channel != null )
-        {
-            logger.trace( "Closing underlying channel / random-access file..." );
-            try
-            {
-                if ( channel.isOpen() )
+            lockAnd((lock)->{
+                if ( channel != null )
                 {
-                    fileLock.release();
-                    channel.close();
+                    channel.force( true );
+                }
+
+                if ( callbacks != null )
+                {
+                    logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
+                    callbacks.beforeClose();
+                }
+
+                joinable = false;
+
+                if ( output != null )
+                {
+                    logger.trace( "Setting length of: {} to written length: {}", path, flushed );
+                    randomAccessFile.setLength( flushed );
+                }
+
+                // if the channel is null, this is a directory lock.
+                if ( channel != null )
+                {
+                    logger.trace( "Closing underlying channel / random-access file..." );
+                    try
+                    {
+                        if ( channel.isOpen() )
+                        {
+//                            fileLock.release();
+                            channel.close();
+                        }
+                        else
+                        {
+                            logger.trace( "Channel was not open..." );
+                        }
+
+                        randomAccessFile.close();
+                        randomAccessFile.getFD().sync();
+                    }
+                    catch ( SyncFailedException e )
+                    {
+                        logger.warn( "System buffers MAY NOT be flushed for closed file: " + path, e );
+                    }
+                    catch ( ClosedChannelException e )
+                    {
+                        logger.debug( "Lock release failed on closed channel.", e );
+                    }
                 }
                 else
                 {
-                    logger.trace( "Channel was not open..." );
+                    logger.trace( "Channel already closed..." );
                 }
 
-                randomAccessFile.close();
-            }
-            catch ( ClosedChannelException e )
-            {
-                logger.debug( "Lock release failed on closed channel.", e );
-            }
+                logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
+                              Thread.currentThread().getName() );
+
+                if ( callbacks != null )
+                {
+                    logger.trace( "calling closed() on callbacks: {}", callbacks );
+                    callbacks.closed();
+                }
+
+                return null;
+            });
         }
-        else
+        catch ( InterruptedException e )
         {
-            logger.trace( "Channel already closed..." );
-        }
-
-        logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
-                      Thread.currentThread().getName() );
-
-        // FIXME: This should NEVER be unlocked!!
-        //        if ( lock.isLocked() )
-        //        {
-        //        lock.clearLocks();
-        //        }
-
-        if ( callbacks != null )
-        {
-            logger.trace( "calling closed() on callbacks: {}", callbacks );
-            callbacks.closed();
+            logger.error( "Interrupted while closing: " + path, e );
         }
     }
 
@@ -347,7 +389,7 @@ public final class JoinableFile
     {
         try
         {
-            opLock.lockAnd( (lock)->{
+            lockAnd( (lock)->{
                 inputs.remove( input.hashCode() );
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
@@ -444,12 +486,14 @@ public final class JoinableFile
             if ( channel != null )
             {
                 count = channel.write( buf );
+                channel.force( false );
             }
             else
             {
                 throw new IllegalStateException(
                         "File channel is null, is the file descriptor " + path + " a directory?" );
             }
+
             buf.clear();
 
             super.flush();

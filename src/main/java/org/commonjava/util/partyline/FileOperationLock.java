@@ -15,10 +15,15 @@
  */
 package org.commonjava.util.partyline;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+
+import static org.apache.commons.lang.StringUtils.join;
 
 /**
  * Locks a single operation on a File in this FileTree, so competing operations ON THAT FILE have to wait, but
@@ -30,43 +35,65 @@ final class FileOperationLock
 
     private Condition changed = lock.newCondition();
 
-    public void lock()
+    private String locker;
+
+    public boolean lock()
+            throws InterruptedException
     {
-        lock.lock();
+        Logger logger = LoggerFactory.getLogger( getClass() );
+        if ( logger.isTraceEnabled() )
+        {
+            logger.trace( "Locking: {} for: {} from:\n\n{}\n\n", this, Thread.currentThread().getName(),
+                          join( Thread.currentThread().getStackTrace(), "\n  " ) );
+        }
+
+        lock.lockInterruptibly();
+
+        logger.trace( "Lock established." );
+        return true;
     }
 
     public void unlock()
     {
-        if ( lock.isLocked() )
+        if ( lock.isHeldByCurrentThread() )
         {
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            if ( logger.isTraceEnabled() )
+            {
+                logger.trace( "Locking: {} (locked by: {}) from:\n\n{}\n\n", this, locker, join( Thread.currentThread().getStackTrace(), "\n  " ) );
+            }
+
+            changed.signal();
             lock.unlock();
+            locker = null;
+
+            logger.trace( "Locked released" );
         }
     }
 
     public void await( long timeoutMs )
             throws InterruptedException
     {
-        changed.await( timeoutMs, TimeUnit.MILLISECONDS );
+        if ( lock.isLocked() )
+        {
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.trace( "Waiting for unlock of: {} by: {}", this, locker );
+            changed.await( timeoutMs, TimeUnit.MILLISECONDS );
+        }
     }
 
     public void signal()
     {
-        changed.signal();
+        if ( lock.isHeldByCurrentThread() )
+        {
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.trace( "Signal from: {} in lock of: {} (locked by: {})", Thread.currentThread().getName(), this, locker );
+            changed.signal();
+        }
     }
 
-    public <T> T lockAnd( LockedFileOperation<T> op )
-            throws IOException, InterruptedException
+    public String getLocker()
     {
-        try
-        {
-            lock();
-
-            return op.execute( this );
-        }
-        finally
-        {
-            unlock();
-        }
+        return locker;
     }
-
 }
