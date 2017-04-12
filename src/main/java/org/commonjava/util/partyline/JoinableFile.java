@@ -346,11 +346,6 @@ public final class JoinableFile
                         }
 
                         randomAccessFile.close();
-                        randomAccessFile.getFD().sync();
-                    }
-                    catch ( SyncFailedException e )
-                    {
-                        logger.warn( "System buffers MAY NOT be flushed for closed file: " + path, e );
                     }
                     catch ( ClosedChannelException e )
                     {
