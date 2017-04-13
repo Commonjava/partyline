@@ -71,7 +71,7 @@ final class FileTree
     {
         TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
         sorted.forEach( ( key, entry ) -> {
-            if ( predicate.test( entry ) )
+            if ( entry != null && predicate.test( entry ) )
             {
                 fileConsumer.accept( entry );
             }
