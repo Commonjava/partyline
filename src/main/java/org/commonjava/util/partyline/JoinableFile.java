@@ -399,7 +399,8 @@ public final class JoinableFile
                 }
                 else
                 {
-                    owner.unlock( originalThreadName );
+                    owner.unlock();
+//                    owner.unlock( originalThreadName );
                 }
 
                 return null;
@@ -423,16 +424,6 @@ public final class JoinableFile
     boolean isOpen()
     {
         return !closed || !inputs.isEmpty();
-    }
-
-    boolean isOwnedByCurrentThread()
-    {
-        return Thread.currentThread().getId() == owner.getThreadId();
-    }
-
-    boolean isOwnedBy( long ownerId )
-    {
-        return ownerId == owner.getThreadId();
     }
 
     private final class JoinableOutputStream

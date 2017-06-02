@@ -15,12 +15,14 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.ThreadContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.ref.WeakReference;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.commons.lang.StringUtils.join;
 
@@ -35,68 +37,70 @@ import static org.apache.commons.lang.StringUtils.join;
 final class LockOwner
 {
 
-    private WeakReference<Thread> threadRef;
+    public static final String PARTYLINE_LOCK_OWNER = "partyline-lock-owner";
 
-    private Long threadId;
+    private final Logger logger = LoggerFactory.getLogger( getClass() );
 
-    private String threadName;
-
-    private final Map<String, String> lockRefs = new LinkedHashMap<>();
+    private final Map<String, LockOwnerInfo> locks = new LinkedHashMap<>();
 
     private String path;
 
-    private final LockLevel lockLevel;
+    private LockLevel dominantLockLevel;
 
-    LockOwner( String path, String ownerName, String label, LockLevel lockLevel )
+    private String dominantOwner;
+
+    LockOwner( String path, String label, LockLevel lockLevel )
     {
         this.path = path;
-        this.lockLevel = lockLevel;
-
-        final Thread t = Thread.currentThread();
-        this.threadRef = new WeakReference<>( t );
-        this.threadName = t.getName() + "(" + label + ")";
-        this.threadId = t.getId();
-
-        increment( ownerName, label );
+        this.dominantLockLevel = lockLevel;
+        this.dominantOwner = getLockReservationName();
+        increment( label, lockLevel );
     }
 
     boolean isLocked()
     {
-        return !lockRefs.isEmpty();
+        return !locks.isEmpty();
     }
 
-    synchronized boolean lock( String ownerName, String label, LockLevel lockLevel )
+    boolean isLockedByCurrentThread()
     {
+        return !locks.isEmpty() && locks.containsKey( getLockReservationName() );
+    }
+
+    synchronized boolean lock( String label, LockLevel lockLevel )
+    {
+        String lockOwner = getLockReservationName();
+        if ( locks.isEmpty() )
+        {
+            logger.trace( "Not locked; locking: {}", lockOwner );
+            this.dominantLockLevel = lockLevel;
+            this.dominantOwner = lockOwner;
+            increment( label, lockLevel );
+            return true;
+        }
+
         switch ( lockLevel )
         {
             case delete:
             case write:
             {
+                logger.trace( "[ABORT] Trying to lock at level: {} from owner: {}. Existing lock is: {}", lockLevel, lockOwner, this.dominantLockLevel );
                 return false;
             }
             case read:
             {
-                if ( this.lockLevel == LockLevel.delete )
+                if ( this.dominantLockLevel == LockLevel.delete )
                 {
+                    logger.trace( "Already locked at delete level. Ignoring: {}", label );
                     return false;
                 }
 
-                increment( ownerName, label );
+                increment( label, lockLevel );
                 return true;
             }
             default:
                 return false;
         }
-    }
-
-    long getThreadId()
-    {
-        return threadId;
-    }
-
-    Thread getThread()
-    {
-        return threadRef.get();
     }
 
     @Override
@@ -108,70 +112,114 @@ final class LockOwner
     synchronized CharSequence getLockInfo()
     {
         return new StringBuilder().append( "Lock level: " )
-                                  .append( lockLevel )
-                                  .append( "\nThread: " )
-                                  .append( threadName )
-                                  .append( "\nLock Count: " )
-                                  .append( lockRefs.size() )
-                                  .append( "\nReferences:\n  " )
-                                  .append( join( lockRefs.entrySet(), "\n  " ) );
+                                  .append( dominantLockLevel )
+                                  .append( "\nOwner context is: " )
+                                  .append( locks.entrySet() );
     }
 
-    private synchronized int increment( String ownerName, String label )
+    private synchronized int increment( String label, LockLevel level )
     {
-        if ( ownerName == null )
-        {
-            ownerName = Thread.currentThread().getName();
-        }
+        String ownerName = getLockReservationName();
+        LockOwnerInfo lockOwnerInfo = locks.computeIfAbsent( ownerName, o->new LockOwnerInfo( level ) );
 
-        lockRefs.put( ownerName, label );
+        int lockCount = lockOwnerInfo.locks.incrementAndGet();
+
         Logger logger = LoggerFactory.getLogger( getClass() );
 
-        int lockCount = lockRefs.size();
-        logger.trace( "{} Incremented lock count to: {} with ref: {}", this, lockCount, label );
+        logger.trace( "{} Incremented lock count to: {} for owner: {} with ref: {}", this, lockCount, ownerName, label );
         return lockCount;
     }
 
-    synchronized boolean unlock( String threadName )
+    synchronized boolean unlock()
     {
-        if ( threadName == null )
+        String ownerName = getLockReservationName();
+        LockOwnerInfo lockOwnerInfo = locks.get( ownerName );
+        if ( lockOwnerInfo == null )
         {
-            threadName = Thread.currentThread().getName();
+            logger.trace( "Not locked by: {}. Returning false.", ownerName );
+            return false;
         }
 
-        Logger logger = LoggerFactory.getLogger( getClass() );
-        String ref = null;
-        if ( !lockRefs.isEmpty() )
-        {
-            ref = lockRefs.remove( threadName );
-        }
+        int count = lockOwnerInfo.locks.decrementAndGet();
+        logger.trace( "Decremented lock count in: {} for owner: {}. New count is: {}\nLock Info:\n{}", this.path, ownerName, count, getLockInfo() );
 
-        int lockCount = lockRefs.size();
-        logger.trace( "{} Decrementing lock count in: {}, popping ref: {}. New count is: {}\nLock Info:\n{}", threadName, this, ref, lockCount, getLockInfo() );
-
-        if ( lockCount < 1 )
+        if ( count < 1 )
         {
-            this.threadId = null;
-            this.threadRef.clear();
-            this.threadName = null;
+            locks.remove( ownerName );
+            if ( dominantOwner.equals( ownerName ) )
+            {
+                logger.trace( "Unlocked owner is removed, but was dominant lock holder. Calculating new dominant lock holder." );
+
+                Optional<LockOwnerInfo> first = locks.values()
+                                                     .stream()
+                                                     .sorted( ( o1, o2 ) -> new Integer( o2.level.ordinal() ).compareTo(
+                                                             o1.level.ordinal() ) )
+                                                     .findFirst();
+
+                if ( first.isPresent() )
+                {
+                    LockOwnerInfo newDom = first.get();
+                    this.dominantOwner = newDom.ownerName;
+                    this.dominantLockLevel = newDom.level;
+                    logger.trace( "New dominant holder is: {} with level: {}", this.dominantOwner,
+                                  this.dominantLockLevel );
+                }
+                else
+                {
+                    logger.trace( "Locks seems to be empty; Unlocking" );
+                    this.dominantOwner = null;
+                    this.dominantLockLevel = null;
+                }
+            }
+
             return true;
         }
 
+        logger.trace( "Unlock operation did not free final lock from file" );
         return false;
-    }
-
-    int getLockCount()
-    {
-        return lockRefs.size();
     }
 
     LockLevel getLockLevel()
     {
-        return lockLevel;
+        return dominantLockLevel;
     }
 
     synchronized void clearLocks()
     {
-        lockRefs.clear();
+        locks.clear();
+        this.dominantLockLevel = null;
+        this.dominantOwner = null;
     }
+
+    public static String getLockReservationName()
+    {
+        ThreadContext ctx = ThreadContext.getContext( true );
+        String ownerName = (String) ctx.get( PARTYLINE_LOCK_OWNER );
+        if ( ownerName == null )
+        {
+            ownerName = "Threads sharing context with: " + Thread.currentThread().getName();
+            ctx.put( PARTYLINE_LOCK_OWNER, ownerName );
+        }
+
+        return ownerName;
+    }
+
+    private static final class LockOwnerInfo
+    {
+        private String ownerName = getLockReservationName();
+        private AtomicInteger locks = new AtomicInteger( 0 );
+        private LockLevel level;
+
+        LockOwnerInfo( LockLevel level )
+        {
+            this.level = level;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "LockOwnerInfo{" + "ownerName='" + ownerName + '\'' + ", locks=" + locks + ", level=" + level + '}';
+        }
+    }
+
 }

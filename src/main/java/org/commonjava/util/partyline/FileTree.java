@@ -26,7 +26,6 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -34,6 +33,7 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import static org.commonjava.util.partyline.LockLevel.read;
+import static org.commonjava.util.partyline.LockOwner.getLockReservationName;
 
 /**
  * Maintains access to files in partyline. This class restricts operations to prohibit concurrent operations on the same
@@ -129,20 +129,20 @@ final class FileTree
      * (Manually) unlock a file for a given ownership label. The label allows the system to avoid unlocking for other
      * active threads that might still be using the file.
      * @param f The file to unlock
-     * @param ownerName The ownership label to remove from the active locks on the file
      * @return true if the file has no remaining locks after unlocking for this owner; false otherwise
      */
-    boolean unlock( File f, String ownerName )
+    boolean unlock( File f )
     {
         try
         {
             return withOpLock( f, ( opLock ) -> {
+                String ownerName = getLockReservationName();
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
                 {
                     logger.trace( "Unlocking {} (owner: {})", f, ownerName );
-                    if ( entry.lock.unlock( ownerName ) )
+                    if ( entry.lock.unlock() )
                     {
                         logger.trace( "Unlocked; clearing resources associated with lock" );
                         if ( entry.file != null )
@@ -251,7 +251,6 @@ final class FileTree
      * within the given timeout. This is used to manually lock a file from outside.
      *
      * @param file The file to lock
-     * @param ownerName The owner name to use, when tracking / releasing active locks
      * @param label The activity label, to aid in debugging stuck locks
      * @param lockLevel The type of lock to acquire (read, write, delete)
      * @param timeout The timeout period before giving up on the lock acquisition
@@ -262,12 +261,12 @@ final class FileTree
      * @see JoinableFileManager#lock(File, long, LockLevel, String)
      * @see LockLevel
      */
-    boolean tryLock( File file, String ownerName, String label, LockLevel lockLevel, long timeout, TimeUnit unit )
+    boolean tryLock( File file, String label, LockLevel lockLevel, long timeout, TimeUnit unit )
             throws InterruptedException
     {
         try
         {
-            return tryLock( file, ownerName, label, lockLevel, timeout, unit, ( opLock ) -> true );
+            return tryLock( file, label, lockLevel, timeout, unit, ( opLock ) -> true );
         }
         catch ( IOException e )
         {
@@ -290,7 +289,6 @@ final class FileTree
      * or when releasing the last lock.
      *
      * @param f The file to lock
-     * @param ownerName The owner name to use, when tracking / releasing active locks
      * @param label The activity label, to aid in debugging stuck locks
      * @param lockLevel The type of lock to acquire (read, write, delete)
      * @param timeout The timeout period before giving up on the lock acquisition
@@ -301,7 +299,7 @@ final class FileTree
      *
      * @see LockLevel
      */
-    private <T> T tryLock( File f, String ownerName, String label, LockLevel lockLevel, long timeout, TimeUnit unit,
+    private <T> T tryLock( File f, String label, LockLevel lockLevel, long timeout, TimeUnit unit,
                            LockedFileOperation<T> operation )
             throws InterruptedException, IOException
     {
@@ -318,14 +316,14 @@ final class FileTree
                 while ( end < 1 || System.currentTimeMillis() < end )
                 {
                     entry = getLockingEntry( f );
-                    if ( entry == null )
+                    if ( entry == null || entry.lock.isLockedByCurrentThread() )
                     {
                         if ( read == lockLevel && !f.exists() )
                         {
                             throw new IOException( f + " does not exist. Cannot read-lock missing file!" );
                         }
 
-                        entry = new FileEntry( name, label, lockLevel, ownerName );
+                        entry = new FileEntry( name, label, lockLevel );
                         logger.trace( "No lock; locking as: {} from: {}", lockLevel, label );
                         entryMap.put( name, entry );
                         try
@@ -344,7 +342,7 @@ final class FileTree
                     {
                         if ( entry.name.equals( f.getAbsolutePath() ) )
                         {
-                            if ( entry.lock.lock( ownerName, label, lockLevel ) )
+                            if ( entry.lock.lock( label, lockLevel ) )
                             {
                                 logger.trace( "Added lock to existing entry: {}", entry.name );
                                 try
@@ -354,7 +352,7 @@ final class FileTree
                                 catch ( IOException | RuntimeException e )
                                 {
                                     // we just locked this, and the call failed...reverse the lock operation.
-                                    entry.lock.unlock( ownerName );
+                                    entry.lock.unlock();
                                     throw e;
                                 }
                             }
@@ -386,7 +384,7 @@ final class FileTree
 
     /**
      * Establish a Stream (input or output) associated with a given file. This method will acquire the appropriate lock
-     * for the file (using {@link #tryLock(File, String, String, LockLevel, long, TimeUnit, LockedFileOperation)}) and
+     * for the file (using {@link #tryLock(File, String, LockLevel, long, TimeUnit, LockedFileOperation)}) and
      * then retrieve the {@link JoinableFile} instance associated with the file (or create it if necessary). Finally,
      * it passes the JoinableFile to the given {@link JoinFileOperation} to establish the appropriate stream into / out
      * of that file.
@@ -403,7 +401,7 @@ final class FileTree
      * @throws IOException
      * @throws InterruptedException
      *
-     * @see #tryLock(File, String, String, LockLevel, long, TimeUnit, LockedFileOperation)
+     * @see #tryLock(File, String, LockLevel, long, TimeUnit, LockedFileOperation)
      */
     <T> T setOrJoinFile( File realFile, StreamCallbacks callbacks, boolean doOutput, long timeout,
                                 TimeUnit unit, JoinFileOperation<T> function )
@@ -414,7 +412,7 @@ final class FileTree
         Logger logger = LoggerFactory.getLogger( getClass() );
         while ( end < 1 || System.currentTimeMillis() < end )
         {
-            T result = tryLock( realFile, Thread.currentThread().getName(), "Open File for " + ( doOutput ? "output" : "input" ),
+            T result = tryLock( realFile, "Open File for " + ( doOutput ? "output" : "input" ),
                                            doOutput ? LockLevel.write : read, timeout, unit, ( opLock ) -> {
                         FileEntry entry = entryMap.get( realFile.getAbsolutePath() );
                         boolean proceed = false;
@@ -432,7 +430,7 @@ final class FileTree
                                 logger.trace( "File open but in process of closing; not joinable. Will wait..." );
 
                                 // undo the lock we just placed on this entry, to allow it to clear...
-                                entry.lock.unlock( Thread.currentThread().getName() );
+                                entry.lock.unlock();
 
                                 opLock.signal();
 
@@ -487,12 +485,12 @@ final class FileTree
      * @throws InterruptedException
      * @throws IOException
      *
-     * @see #tryLock(File, String, String, LockLevel, long, TimeUnit, LockedFileOperation)
+     * @see #tryLock(File, String, LockLevel, long, TimeUnit, LockedFileOperation)
      */
     boolean delete( File file, long timeout, TimeUnit unit )
             throws InterruptedException, IOException
     {
-        return tryLock( file, Thread.currentThread().getName(), "Delete File", LockLevel.delete, timeout, unit, ( opLock ) -> {
+        return tryLock( file, "Delete File", LockLevel.delete, timeout, unit, ( opLock ) -> {
             FileEntry entry = entryMap.remove( file.getAbsolutePath() );
             //            synchronized ( this )
             //            {
@@ -627,6 +625,17 @@ final class FileTree
         }
     }
 
+    public boolean isLockedByCurrentThread( final File file )
+    {
+        FileEntry fileEntry = entryMap.get( file.getAbsolutePath() );
+        if ( fileEntry != null )
+        {
+            return fileEntry.lock.isLockedByCurrentThread();
+        }
+
+        return false;
+    }
+
     /**
      * Class which manages the state associated with files and {@link JoinableFile}s in partyline. These keep the lock
      * associated with a path and a {@link JoinableFile}, even when there is no JoinableFile yet. They are mapped to the
@@ -640,10 +649,10 @@ final class FileTree
 
         private JoinableFile file;
 
-        FileEntry( String name, String lockingLabel, LockLevel lockLevel, String ownerName )
+        FileEntry( String name, String lockingLabel, LockLevel lockLevel )
         {
             this.name = name;
-            this.lock = new LockOwner( name, ownerName, lockingLabel, lockLevel );
+            this.lock = new LockOwner( name, lockingLabel, lockLevel );
         }
     }
 
