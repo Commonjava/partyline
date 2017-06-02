@@ -41,10 +41,10 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
         extends AbstractBytemanTest
 {
     /**
-     * Test that verifies concurrent reading locks on different files will not effect each other's reading process, this setup an script of events for
-     * multiple files, where:
+     * Test that verifies concurrent reading locks on different files will not effect each other's reading process,
+     * this setup an script of events for multiple files, where:
      * <ol>
-     *     <li>Multiple reads happen simultaneously, read locks on distrinct files/li>
+     *     <li>Multiple reads happen simultaneously, read locks on distinct files/li>
      *     <li>Reading processes for different files are isolated</li>
      * </ol>
      * @throws Exception

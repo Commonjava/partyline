@@ -16,7 +16,6 @@
 package org.commonjava.util.partyline;
 
 import org.commonjava.cdi.util.weft.ThreadContext;
-import org.commonjava.util.partyline.callback.CallbackInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +33,8 @@ import java.util.TimerTask;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static org.commonjava.util.partyline.LockOwner.getLockReservationName;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -321,11 +322,18 @@ public class JoinableFileManager
      * @param lockLevel The type of lock to acquire (read, write, delete)
      * @param operationName A label for the operation, to aid in debugging of stuck active locks.
      */
+    @Deprecated
     public boolean lock( final File file, long timeout, LockLevel lockLevel, String operationName )
             throws InterruptedException
     {
+        return lock( file, timeout, lockLevel );
+    }
+
+    public boolean lock( final File file, long timeout, LockLevel lockLevel )
+            throws InterruptedException
+    {
         logger.trace( ">>>MANUAL LOCK: {}", file );
-        boolean result = locks.tryLock( file, operationName, "Manual lock", lockLevel, timeout, TimeUnit.MILLISECONDS );
+        boolean result = locks.tryLock( file, "Manual lock", lockLevel, timeout, TimeUnit.MILLISECONDS );
         logger.trace( "<<<MANUAL LOCK (result: {})", result );
 
         return result;
@@ -338,10 +346,16 @@ public class JoinableFileManager
      * @see #lock(File, long, LockLevel, String)
      * @see LockLevel
      */
+    @Deprecated
     public boolean unlock( final File file, String operationName )
     {
-        logger.trace( ">>>MANUAL UNLOCK: {} by: {}", file, operationName );
-        boolean result = locks.unlock( file, operationName );
+        return unlock( file );
+    }
+
+    public boolean unlock( final File file )
+    {
+        logger.trace( ">>>MANUAL UNLOCK: {} by: {}", file, getLockReservationName() );
+        boolean result = locks.unlock( file );
 
         if ( result )
         {
@@ -353,6 +367,11 @@ public class JoinableFileManager
         }
 
         return result;
+    }
+
+    public boolean isLockedByCurrentThread( File file )
+    {
+        return locks.isLockedByCurrentThread( file );
     }
 
     /**

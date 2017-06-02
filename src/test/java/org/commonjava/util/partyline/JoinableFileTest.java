@@ -84,7 +84,7 @@ public class JoinableFileTest
 
     private LockOwner newLockOwner( String path, LockLevel level )
     {
-        return new LockOwner( path, Thread.currentThread().getName(), name.getMethodName(), level );
+        return new LockOwner( path, name.getMethodName(), level );
     }
 
     private void assertReadOfExistingFileOfSize( String s )
@@ -178,7 +178,7 @@ public class JoinableFileTest
         String threadName = "writer" + writers++;
 
         final JoinableFile stream =
-                new JoinableFile( tempFile, new LockOwner( tempFile.getAbsolutePath(), threadName, name.getMethodName(), LockLevel.write ), true );
+                new JoinableFile( tempFile, new LockOwner( tempFile.getAbsolutePath(), name.getMethodName(), LockLevel.write ), true );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );
@@ -276,7 +276,7 @@ public class JoinableFileTest
         String threadName = "writer" + writers++;
 
         final JoinableFile stream =
-                new JoinableFile( tempFile, new LockOwner( tempFile.getAbsolutePath(), threadName, name.getMethodName(), LockLevel.write ), true );
+                new JoinableFile( tempFile, new LockOwner( tempFile.getAbsolutePath(), name.getMethodName(), LockLevel.write ), true );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

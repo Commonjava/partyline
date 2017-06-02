@@ -43,8 +43,9 @@ final class FileOperationLock
         Logger logger = LoggerFactory.getLogger( getClass() );
         if ( logger.isTraceEnabled() )
         {
-            logger.trace( "Locking: {} for: {} from:\n\n{}\n\n", this, Thread.currentThread().getName(),
-                          join( Thread.currentThread().getStackTrace(), "\n  " ) );
+            logger.trace( "Locking: {} for: {}", this, Thread.currentThread().getName() );
+//            logger.trace( "Locking: {} for: {} from:\n\n{}\n\n", this, Thread.currentThread().getName(),
+//                          join( Thread.currentThread().getStackTrace(), "\n  " ) );
         }
 
         lock.lockInterruptibly();
@@ -60,7 +61,8 @@ final class FileOperationLock
             Logger logger = LoggerFactory.getLogger( getClass() );
             if ( logger.isTraceEnabled() )
             {
-                logger.trace( "Locking: {} (locked by: {}) from:\n\n{}\n\n", this, locker, join( Thread.currentThread().getStackTrace(), "\n  " ) );
+                logger.trace( "Locking: {} (locked by: {})", this, locker );
+//                logger.trace( "Locking: {} (locked by: {}) from:\n\n{}\n\n", this, locker, join( Thread.currentThread().getStackTrace(), "\n  " ) );
             }
 
             changed.signal();

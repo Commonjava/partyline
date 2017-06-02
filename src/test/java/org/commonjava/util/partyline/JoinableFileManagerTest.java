@@ -30,12 +30,14 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Paths;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.commonjava.util.partyline.LockOwner.PARTYLINE_LOCK_OWNER;
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
@@ -53,6 +55,67 @@ public class JoinableFileManagerTest
     public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
     private final JoinableFileManager mgr = new JoinableFileManager();
+
+    @Test
+    public void lockDirThenLockFile()
+            throws IOException, InterruptedException
+    {
+        File dir = temp.newFolder();
+        File child = dir.toPath().resolve("child.txt").toFile();
+
+        boolean dirLocked = mgr.lock( dir, 2000, LockLevel.write );
+        assertThat( dirLocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
+
+        try (OutputStream out = mgr.openOutputStream( child, 2000 ))
+        {
+            assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+            IOUtils.write( "This is a test", out );
+        }
+
+        boolean unlocked = mgr.unlock( dir );
+        assertThat( unlocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+
+        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+    }
+
+    @Test
+    public void lockDirThenLockTwoFiles()
+            throws IOException, InterruptedException
+    {
+        File dir = temp.newFolder();
+
+        File child = dir.toPath().resolve("child.txt").toFile();
+        File child2 = dir.toPath().resolve("child2.txt").toFile();
+
+        boolean dirLocked = mgr.lock( dir, 2000, LockLevel.write );
+        assertThat( dirLocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
+
+        try (OutputStream out = mgr.openOutputStream( child, 2000 );
+             OutputStream out2 = mgr.openOutputStream( child2, 2000 ))
+        {
+            assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+            assertThat( mgr.isWriteLocked( child2 ), equalTo( true ) );
+
+            IOUtils.write( "This is a test", out2 );
+            out2.close();
+
+            assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+
+            IOUtils.write( "This is a test", out );
+        }
+
+        boolean unlocked = mgr.unlock( dir );
+        assertThat( unlocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+
+        assertThat( mgr.isWriteLocked( child2 ), equalTo( false ) );
+        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+    }
 
     @Test
     public void twoFileReaders_CleanupFileEntryOnLastClose()
@@ -262,19 +325,25 @@ public class JoinableFileManagerTest
     public void openOutputStream_TimeBoxedSecondCallThrowsException()
             throws Exception
     {
+        ThreadContext ctx = ThreadContext.getContext( true );
+        final String key = "real owner";
+
         final File f = temp.newFile();
-        Thread.currentThread().setName( "output 1" );
+
+        Thread.currentThread().setName( key );
         final OutputStream stream = mgr.openOutputStream( f );
 
-        Thread.currentThread().setName( "output 2" );
+        assertThat( ((String)ctx.get( PARTYLINE_LOCK_OWNER )).contains(key), equalTo( true ) );
+
+        ctx.put( PARTYLINE_LOCK_OWNER, "output 2" );
         OutputStream s2 = mgr.openOutputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, nullValue() );
 
-        Thread.currentThread().setName( "output 1" );
+        ctx.put( PARTYLINE_LOCK_OWNER, key );
         stream.close();
 
-        Thread.currentThread().setName( "output 3" );
+        ctx.put( PARTYLINE_LOCK_OWNER, "output 3" );
         s2 = mgr.openOutputStream( f, SHORT_TIMEOUT );
 
         assertThat( s2, notNullValue() );
