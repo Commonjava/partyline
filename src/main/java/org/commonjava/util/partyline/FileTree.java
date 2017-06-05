@@ -316,7 +316,51 @@ final class FileTree
                 while ( end < 1 || System.currentTimeMillis() < end )
                 {
                     entry = getLockingEntry( f );
-                    if ( entry == null || entry.lock.isLockedByCurrentThread() )
+
+                    /*
+                    There are three basic states we need to capture here:
+
+                    1. The target file is already locked. Try to lock again, and retry / fail as appropriate.
+
+                    2. The target file's ancestor is locked. Try to lock again, and retry / fail as appropriate.
+                       When locked, set a flag to tell the system to lock the target file and proceed.
+
+                    3. Neither the target file nor its ancestry is locked. Set a flag to tell the system to lock the
+                       target file and proceed.
+                     */
+                    boolean doFileLock = (entry == null);
+
+                    if ( entry != null && entry.name.equals( name ) )
+                    {
+                        if ( entry.lock.lock( label, lockLevel ) )
+                        {
+                            logger.trace( "Added lock to existing entry: {}", entry.name );
+                            try
+                            {
+                                return operation.execute( opLock );
+                            }
+                            catch ( IOException | RuntimeException e )
+                            {
+                                // we just locked this, and the call failed...reverse the lock operation.
+                                entry.lock.unlock();
+                                throw e;
+                            }
+                        }
+                        else
+                        {
+                            logger.trace( "Lock failed, but retry may allow another attempt..." );
+                        }
+                    }
+                    else if ( entry != null && name.startsWith( entry.name ) )
+                    {
+                        entry.lock.lock( label, lockLevel );
+                        doFileLock = true;
+                    }
+
+                    /*
+                    If we've been cleared to proceed above, create a new FileEntry instance, lock it, and proceed.
+                     */
+                    if ( doFileLock )
                     {
                         if ( read == lockLevel && !f.exists() )
                         {
@@ -338,30 +382,11 @@ final class FileTree
                             throw e;
                         }
                     }
+                    /*
+                    If we haven't succeeded in locking the file (or its ancestry), wait.
+                     */
                     else
                     {
-                        if ( entry.name.equals( f.getAbsolutePath() ) )
-                        {
-                            if ( entry.lock.lock( label, lockLevel ) )
-                            {
-                                logger.trace( "Added lock to existing entry: {}", entry.name );
-                                try
-                                {
-                                    return operation.execute( opLock );
-                                }
-                                catch ( IOException | RuntimeException e )
-                                {
-                                    // we just locked this, and the call failed...reverse the lock operation.
-                                    entry.lock.unlock();
-                                    throw e;
-                                }
-                            }
-                            else
-                            {
-                                logger.trace( "Lock failed, but retry may allow another attempt..." );
-                            }
-                        }
-
                         logger.trace( "Waiting for lock to clear; locking as: {} from: {}", lockLevel, label );
                         opLock.await( WAIT_TIMEOUT );
                     }

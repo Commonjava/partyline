@@ -118,6 +118,56 @@ public class JoinableFileManagerTest
     }
 
     @Test
+    public void lockDirThenLockFourFiles()
+            throws IOException, InterruptedException
+    {
+        File dir = temp.newFolder();
+
+        File child = dir.toPath().resolve("child.txt").toFile();
+        File child2 = dir.toPath().resolve("child2.txt").toFile();
+        File child3 = dir.toPath().resolve("child3.txt").toFile();
+        File child4 = dir.toPath().resolve("child4.txt").toFile();
+
+        boolean dirLocked = mgr.lock( dir, 2000, LockLevel.write );
+        assertThat( dirLocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
+
+        try (OutputStream out = mgr.openOutputStream( child, 2000 );
+             OutputStream out2 = mgr.openOutputStream( child2, 2000 );
+             OutputStream out3 = mgr.openOutputStream( child3, 2000 );
+             OutputStream out4 = mgr.openOutputStream( child4, 2000 ))
+        {
+            assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+            assertThat( mgr.isWriteLocked( child2 ), equalTo( true ) );
+            assertThat( mgr.isWriteLocked( child3 ), equalTo( true ) );
+            assertThat( mgr.isWriteLocked( child4 ), equalTo( true ) );
+
+            IOUtils.write( "This is a test", out4 );
+            out4.close();
+
+            IOUtils.write( "This is a test", out3 );
+            out3.close();
+
+            IOUtils.write( "This is a test", out2 );
+            out2.close();
+
+            assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+
+            IOUtils.write( "This is a test", out );
+        }
+
+        boolean unlocked = mgr.unlock( dir );
+        assertThat( unlocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+
+        assertThat( mgr.isWriteLocked( child4 ), equalTo( false ) );
+        assertThat( mgr.isWriteLocked( child3 ), equalTo( false ) );
+        assertThat( mgr.isWriteLocked( child2 ), equalTo( false ) );
+        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+    }
+
+    @Test
     public void twoFileReaders_CleanupFileEntryOnLastClose()
             throws Exception
     {
