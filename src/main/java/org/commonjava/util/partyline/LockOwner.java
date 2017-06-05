@@ -184,6 +184,14 @@ final class LockOwner
         return dominantLockLevel;
     }
 
+    synchronized int getLockTimes()
+    {
+        String ownerName = getLockReservationName();
+        LockOwnerInfo lockOwnerInfo = locks.get( ownerName );
+
+        return lockOwnerInfo == null ? 0 : lockOwnerInfo.locks.get();
+    }
+
     synchronized void clearLocks()
     {
         locks.clear();

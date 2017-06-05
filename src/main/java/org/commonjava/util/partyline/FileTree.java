@@ -125,6 +125,23 @@ final class FileTree
         }
     }
 
+    int getLockTimes( File file ){
+        FileEntry entry = getLockingEntry( file );
+        if ( entry == null )
+        {
+            return 0;
+        }
+        else if ( !entry.name.equals( file.getAbsolutePath() ) )
+        {
+            //FIXME: Not sure if this is also 0
+            return 0;
+        }
+        else
+        {
+            return entry.lock.getLockTimes();
+        }
+    }
+
     /**
      * (Manually) unlock a file for a given ownership label. The label allows the system to avoid unlocking for other
      * active threads that might still be using the file.

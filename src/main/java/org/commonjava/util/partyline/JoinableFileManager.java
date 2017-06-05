@@ -396,6 +396,16 @@ public class JoinableFileManager
     }
 
     /**
+     * Retrieve information about lock times for one single thread of the specified file
+     *
+     * @return the lock times of file for single thread.
+     */
+    public int getLockTimes( final File file )
+    {
+        return locks.getLockTimes( file );
+    }
+
+    /**
      * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false
      * if the timeout elapses without the file becoming available for writes.
      *
