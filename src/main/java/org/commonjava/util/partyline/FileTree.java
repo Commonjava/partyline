@@ -125,6 +125,23 @@ final class FileTree
         }
     }
 
+    int getContextLockCount( File file ){
+        FileEntry entry = getLockingEntry( file );
+        if ( entry == null )
+        {
+            return 0;
+        }
+        else if ( !entry.name.equals( file.getAbsolutePath() ) )
+        {
+            //FIXME: Not sure if this is also 0
+            return 0;
+        }
+        else
+        {
+            return entry.lock.getContextLockCount();
+        }
+    }
+
     /**
      * (Manually) unlock a file for a given ownership label. The label allows the system to avoid unlocking for other
      * active threads that might still be using the file.
@@ -330,31 +347,34 @@ final class FileTree
                      */
                     boolean doFileLock = (entry == null);
 
-                    if ( entry != null && entry.name.equals( name ) )
+                    if ( !doFileLock )
                     {
-                        if ( entry.lock.lock( label, lockLevel ) )
+                        if ( entry.name.equals( name ) )
                         {
-                            logger.trace( "Added lock to existing entry: {}", entry.name );
-                            try
+                            if ( entry.lock.lock( label, lockLevel ) )
                             {
-                                return operation.execute( opLock );
+                                logger.trace( "Added lock to existing entry: {}", entry.name );
+                                try
+                                {
+                                    return operation.execute( opLock );
+                                }
+                                catch ( IOException | RuntimeException e )
+                                {
+                                    // we just locked this, and the call failed...reverse the lock operation.
+                                    entry.lock.unlock();
+                                    throw e;
+                                }
                             }
-                            catch ( IOException | RuntimeException e )
+                            else
                             {
-                                // we just locked this, and the call failed...reverse the lock operation.
-                                entry.lock.unlock();
-                                throw e;
+                                logger.trace( "Lock failed, but retry may allow another attempt..." );
                             }
                         }
-                        else
+                        else if ( name.startsWith( entry.name ) )
                         {
-                            logger.trace( "Lock failed, but retry may allow another attempt..." );
+                            entry.lock.lock( label, lockLevel );
+                            doFileLock = true;
                         }
-                    }
-                    else if ( entry != null && name.startsWith( entry.name ) )
-                    {
-                        entry.lock.lock( label, lockLevel );
-                        doFileLock = true;
                     }
 
                     /*

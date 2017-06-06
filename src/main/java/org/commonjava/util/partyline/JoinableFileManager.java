@@ -396,6 +396,16 @@ public class JoinableFileManager
     }
 
     /**
+     * Retrieve lock times for one single thread context of the specified file
+     *
+     * @return the lock times of file for single thread context.
+     */
+    public int getContextLockCount( final File file )
+    {
+        return locks.getContextLockCount( file );
+    }
+
+    /**
      * Wait the specified timeout milliseconds for write access on the specified file to become available. Return false
      * if the timeout elapses without the file becoming available for writes.
      *
