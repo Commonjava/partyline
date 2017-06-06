@@ -184,7 +184,7 @@ final class LockOwner
         return dominantLockLevel;
     }
 
-    synchronized int getLockTimes()
+    synchronized int getContextLockCount()
     {
         String ownerName = getLockReservationName();
         LockOwnerInfo lockOwnerInfo = locks.get( ownerName );

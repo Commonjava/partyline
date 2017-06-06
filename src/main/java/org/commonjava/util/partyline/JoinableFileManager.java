@@ -396,13 +396,13 @@ public class JoinableFileManager
     }
 
     /**
-     * Retrieve information about lock times for one single thread of the specified file
+     * Retrieve lock times for one single thread context of the specified file
      *
-     * @return the lock times of file for single thread.
+     * @return the lock times of file for single thread context.
      */
-    public int getLockTimes( final File file )
+    public int getContextLockCount( final File file )
     {
-        return locks.getLockTimes( file );
+        return locks.getContextLockCount( file );
     }
 
     /**

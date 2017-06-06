@@ -125,7 +125,7 @@ final class FileTree
         }
     }
 
-    int getLockTimes( File file ){
+    int getContextLockCount( File file ){
         FileEntry entry = getLockingEntry( file );
         if ( entry == null )
         {
@@ -138,7 +138,7 @@ final class FileTree
         }
         else
         {
-            return entry.lock.getLockTimes();
+            return entry.lock.getContextLockCount();
         }
     }
 
