@@ -57,6 +57,19 @@ public class JoinableFileManagerTest
     private final JoinableFileManager mgr = new JoinableFileManager();
 
     @Test
+    @Ignore( "Deadlocks currently, needs to be fixed!" )
+    public void lockAndUnlockTwiceInSequenceFromOneThread()
+            throws IOException, InterruptedException
+    {
+        File f = temp.newFolder();
+        mgr.lock( f, Long.MAX_VALUE, LockLevel.write );
+        mgr.lock( f, Long.MAX_VALUE, LockLevel.write );
+
+        mgr.unlock( f );
+        mgr.unlock( f );
+    }
+
+    @Test
     public void lockDirThenLockFile()
             throws IOException, InterruptedException
     {
