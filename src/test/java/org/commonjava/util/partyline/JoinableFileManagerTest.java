@@ -17,7 +17,6 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.commonjava.cdi.util.weft.ContextSensitiveExecutorService;
 import org.commonjava.cdi.util.weft.ThreadContext;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -30,7 +29,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -82,89 +82,104 @@ public class JoinableFileManagerTest
     }
 
     @Test
-    public void lockDirThenLockTwoFiles()
+    public void lockDirThenLockTwoFilesWithShortTimeout()
             throws IOException, InterruptedException
     {
-        File dir = temp.newFolder();
-
-        File child = dir.toPath().resolve("child.txt").toFile();
-        File child2 = dir.toPath().resolve("child2.txt").toFile();
-
-        boolean dirLocked = mgr.lock( dir, 2000, LockLevel.write );
-        assertThat( dirLocked, equalTo( true ) );
-        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
-        assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
-
-        try (OutputStream out = mgr.openOutputStream( child, 2000 );
-             OutputStream out2 = mgr.openOutputStream( child2, 2000 ))
-        {
-            assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
-            assertThat( mgr.isWriteLocked( child2 ), equalTo( true ) );
-
-            IOUtils.write( "This is a test", out2 );
-            out2.close();
-
-            assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
-
-            IOUtils.write( "This is a test", out );
-        }
-
-        boolean unlocked = mgr.unlock( dir );
-        assertThat( unlocked, equalTo( true ) );
-        assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
-
-        assertThat( mgr.isWriteLocked( child2 ), equalTo( false ) );
-        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+        lockDirThenLockNFilesWithTimeout( 2, 2000 );
     }
 
     @Test
-    public void lockDirThenLockFourFiles()
+    public void lockDirThenLockFourFilesWithShortTimeout()
+            throws IOException, InterruptedException
+    {
+        lockDirThenLockNFilesWithTimeout( 4, 2000 );
+    }
+
+    @Test
+    public void lockDirThenLockTwoFilesWithLongTimeout()
+            throws IOException, InterruptedException
+    {
+        lockDirThenLockNFilesWithTimeout( 2, Long.MAX_VALUE );
+    }
+
+    @Test
+    public void lockDirThenLockFourFilesWithLongTimeout()
+            throws IOException, InterruptedException
+    {
+        lockDirThenLockNFilesWithTimeout( 4, Long.MAX_VALUE );
+    }
+
+    private void lockDirThenLockNFilesWithTimeout( final int filesNum, final long timeout )
             throws IOException, InterruptedException
     {
         File dir = temp.newFolder();
 
-        File child = dir.toPath().resolve("child.txt").toFile();
-        File child2 = dir.toPath().resolve("child2.txt").toFile();
-        File child3 = dir.toPath().resolve("child3.txt").toFile();
-        File child4 = dir.toPath().resolve("child4.txt").toFile();
+        final Map<String, File> files = new HashMap<>( filesNum );
 
-        boolean dirLocked = mgr.lock( dir, 2000, LockLevel.write );
+        for ( int i = 1; i <= filesNum; i++ )
+        {
+            final String file = "child" + i + ".txt";
+            files.put( file, dir.toPath().resolve( file ).toFile() );
+        }
+
+        boolean dirLocked = mgr.lock( dir, timeout, LockLevel.write );
         assertThat( dirLocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
         assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
 
-        try (OutputStream out = mgr.openOutputStream( child, 2000 );
-             OutputStream out2 = mgr.openOutputStream( child2, 2000 );
-             OutputStream out3 = mgr.openOutputStream( child3, 2000 );
-             OutputStream out4 = mgr.openOutputStream( child4, 2000 ))
+        Map<String, OutputStream> fileOuts = new HashMap<>( filesNum );
+
+        for ( int i = 1; i <= filesNum; i++ )
         {
-            assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
-            assertThat( mgr.isWriteLocked( child2 ), equalTo( true ) );
-            assertThat( mgr.isWriteLocked( child3 ), equalTo( true ) );
-            assertThat( mgr.isWriteLocked( child4 ), equalTo( true ) );
-
-            IOUtils.write( "This is a test", out4 );
-            out4.close();
-
-            IOUtils.write( "This is a test", out3 );
-            out3.close();
-
-            IOUtils.write( "This is a test", out2 );
-            out2.close();
-
-            assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
-
-            IOUtils.write( "This is a test", out );
+            final String fileName = "child" + i + ".txt";
+            final File f = files.get( "child" + i + ".txt" );
+            fileOuts.put( fileName, mgr.openOutputStream( f, timeout ) );
         }
+
+        for (int i=1; i<= filesNum; i++){
+            final File f = files.get( "child" + i + ".txt" );
+            assertThat( mgr.isWriteLocked( f ), equalTo( true ) );
+        }
+
+        for ( int i = filesNum; i > 1; i-- )
+        {
+            final OutputStream out = fileOuts.get( "child" + i + ".txt" );
+            IOUtils.write( "This is a test", out );
+            out.close();
+        }
+
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+
+        final OutputStream out1 = fileOuts.get( "child1.txt" );
+        IOUtils.write( "This is a test", out1 );
+        out1.close();
 
         boolean unlocked = mgr.unlock( dir );
         assertThat( unlocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
 
-        assertThat( mgr.isWriteLocked( child4 ), equalTo( false ) );
-        assertThat( mgr.isWriteLocked( child3 ), equalTo( false ) );
-        assertThat( mgr.isWriteLocked( child2 ), equalTo( false ) );
-        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+        for ( int i = filesNum; i > 0; i-- )
+        {
+            final File f = files.get( "child" + i + ".txt" );
+            assertThat( mgr.isWriteLocked( f ), equalTo( false ) );
+        }
+
+    }
+
+    @Test
+    @Ignore("A case that needs fix")
+    public void lockTwiceForOneDir()
+            throws IOException, InterruptedException
+    {
+        File dir = temp.newFolder();
+        mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        mgr.unlock( dir );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        mgr.unlock( dir );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
     }
 
     @Test

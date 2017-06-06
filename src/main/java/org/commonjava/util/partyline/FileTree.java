@@ -347,31 +347,34 @@ final class FileTree
                      */
                     boolean doFileLock = (entry == null);
 
-                    if ( entry != null && entry.name.equals( name ) )
+                    if ( !doFileLock )
                     {
-                        if ( entry.lock.lock( label, lockLevel ) )
+                        if ( entry.name.equals( name ) )
                         {
-                            logger.trace( "Added lock to existing entry: {}", entry.name );
-                            try
+                            if ( entry.lock.lock( label, lockLevel ) )
                             {
-                                return operation.execute( opLock );
+                                logger.trace( "Added lock to existing entry: {}", entry.name );
+                                try
+                                {
+                                    return operation.execute( opLock );
+                                }
+                                catch ( IOException | RuntimeException e )
+                                {
+                                    // we just locked this, and the call failed...reverse the lock operation.
+                                    entry.lock.unlock();
+                                    throw e;
+                                }
                             }
-                            catch ( IOException | RuntimeException e )
+                            else
                             {
-                                // we just locked this, and the call failed...reverse the lock operation.
-                                entry.lock.unlock();
-                                throw e;
+                                logger.trace( "Lock failed, but retry may allow another attempt..." );
                             }
                         }
-                        else
+                        else if ( name.startsWith( entry.name ) )
                         {
-                            logger.trace( "Lock failed, but retry may allow another attempt..." );
+                            entry.lock.lock( label, lockLevel );
+                            doFileLock = true;
                         }
-                    }
-                    else if ( entry != null && name.startsWith( entry.name ) )
-                    {
-                        entry.lock.lock( label, lockLevel );
-                        doFileLock = true;
                     }
 
                     /*
