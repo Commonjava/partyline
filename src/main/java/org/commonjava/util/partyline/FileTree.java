@@ -237,6 +237,11 @@ final class FileTree
                         entry.file = null;
                     }
 
+                    if ( entry.alsoLocked != null )
+                    {
+                        entry.alsoLocked.lock.unlock();
+                    }
+
                     entryMap.remove( entry.name );
 
                     opLock.signal();
@@ -387,7 +392,7 @@ final class FileTree
                             throw new IOException( f + " does not exist. Cannot read-lock missing file!" );
                         }
 
-                        entry = new FileEntry( name, label, lockLevel );
+                        entry = new FileEntry( name, label, lockLevel, entry == null ? null : entry );
                         logger.trace( "No lock; locking as: {} from: {}", lockLevel, label );
                         entryMap.put( name, entry );
                         try
@@ -659,13 +664,16 @@ final class FileTree
         }
         finally
         {
-            try
+            if ( opLock != null )
             {
-                opLock.unlock();
-            }
-            catch ( Throwable t )
-            {
-                logger.error( "Failed to unlock: " + path, t );
+                try
+                {
+                    opLock.unlock();
+                }
+                catch ( Throwable t )
+                {
+                    logger.error( "Failed to unlock: " + path, t );
+                }
             }
         }
     }
@@ -673,12 +681,7 @@ final class FileTree
     public boolean isLockedByCurrentThread( final File file )
     {
         FileEntry fileEntry = entryMap.get( file.getAbsolutePath() );
-        if ( fileEntry != null )
-        {
-            return fileEntry.lock.isLockedByCurrentThread();
-        }
-
-        return false;
+        return fileEntry != null && fileEntry.lock.isLockedByCurrentThread();
     }
 
     /**
@@ -690,13 +693,16 @@ final class FileTree
     {
         private final String name;
 
+        private FileEntry alsoLocked;
+
         private final LockOwner lock;
 
         private JoinableFile file;
 
-        FileEntry( String name, String lockingLabel, LockLevel lockLevel )
+        FileEntry( String name, String lockingLabel, LockLevel lockLevel, final FileEntry alsoLocked )
         {
             this.name = name;
+            this.alsoLocked = alsoLocked;
             this.lock = new LockOwner( name, lockingLabel, lockLevel );
         }
     }

@@ -57,7 +57,7 @@ public class JoinableFileManagerTest
     private final JoinableFileManager mgr = new JoinableFileManager();
 
     @Test
-    @Ignore( "Deadlocks currently, needs to be fixed!" )
+//    @Ignore( "Deadlocks currently, needs to be fixed!" )
     public void lockAndUnlockTwiceInSequenceFromOneThread()
             throws IOException, InterruptedException
     {
@@ -70,7 +70,7 @@ public class JoinableFileManagerTest
     }
 
     @Test
-    @Ignore("A case that needs fix")
+//    @Ignore("A case that needs fix")
     public void lockTwiceForOneDir()
             throws IOException, InterruptedException
     {
