@@ -57,33 +57,24 @@ public class JoinableFileManagerTest
     private final JoinableFileManager mgr = new JoinableFileManager();
 
     @Test
-//    @Ignore( "Deadlocks currently, needs to be fixed!" )
     public void lockAndUnlockTwiceInSequenceFromOneThread()
-            throws IOException, InterruptedException
-    {
-        File f = temp.newFolder();
-        mgr.lock( f, Long.MAX_VALUE, LockLevel.write );
-        mgr.lock( f, Long.MAX_VALUE, LockLevel.write );
-
-        mgr.unlock( f );
-        mgr.unlock( f );
-    }
-
-    @Test
-//    @Ignore("A case that needs fix")
-    public void lockTwiceForOneDir()
             throws IOException, InterruptedException
     {
         File dir = temp.newFolder();
         mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 1 ));
         mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 2 ));
         mgr.unlock( dir );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 1 ));
         mgr.unlock( dir );
         assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 0 ));
     }
+
 
     @Test
     public void lockDirThenLockFile()
@@ -96,16 +87,20 @@ public class JoinableFileManagerTest
         assertThat( dirLocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
         assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ) );
 
         try (OutputStream out = mgr.openOutputStream( child, 2000 ))
         {
             assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+            assertThat( mgr.getContextLockCount( dir ), equalTo( 2 ) );
             IOUtils.write( "This is a test", out );
         }
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ) );
 
         boolean unlocked = mgr.unlock( dir );
         assertThat( unlocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 0 ) );
 
         assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
     }
@@ -155,12 +150,15 @@ public class JoinableFileManagerTest
         assertThat( dirLocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
         assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ));
 
         final List<OutputStream> fileOuts = new ArrayList<>( filesNum );
 
+        int count = 1;
         for ( File f : files )
         {
             fileOuts.add( mgr.openOutputStream( f, timeout ) );
+            assertThat( mgr.getContextLockCount( dir ), equalTo( ++count ) );
         }
 
         for ( File f : files )
@@ -173,6 +171,7 @@ public class JoinableFileManagerTest
             final OutputStream out = fileOuts.get( i );
             IOUtils.write( "This is a test", out );
             out.close();
+            assertThat( mgr.getContextLockCount( dir ), equalTo( i + 1 ) );
         }
 
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
@@ -180,10 +179,12 @@ public class JoinableFileManagerTest
         final OutputStream out1 = fileOuts.get( 0 );
         IOUtils.write( "This is a test", out1 );
         out1.close();
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ) );
 
         boolean unlocked = mgr.unlock( dir );
         assertThat( unlocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 0 ) );
 
         for ( int i = filesNum-1; i >= 0; i-- )
         {
