@@ -392,7 +392,7 @@ final class FileTree
                             throw new IOException( f + " does not exist. Cannot read-lock missing file!" );
                         }
 
-                        entry = new FileEntry( name, label, lockLevel, entry == null ? null : entry );
+                        entry = new FileEntry( name, label, lockLevel, entry );
                         logger.trace( "No lock; locking as: {} from: {}", lockLevel, label );
                         entryMap.put( name, entry );
                         try
