@@ -195,6 +195,76 @@ public class JoinableFileManagerTest
     }
 
     @Test
+    @Ignore( "This test can not pass now, need fix" )
+    public void lockTwoNestedDirsThenLockFile()
+            throws Exception
+    {
+        File parent = temp.newFolder();
+        File child = mkChildDir( "child", parent );
+        final String file = "childFile.txt";
+        File childFile = child.toPath().resolve( file ).toFile();
+
+        // First lock parent dir
+        final boolean parentLocked = mgr.lock( parent, Long.MAX_VALUE, LockLevel.write );
+        assertThat( parentLocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( parent ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( parent ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 1 ) );
+
+        // Then lock child dir
+        final boolean childLocked = mgr.lock( child, Long.MAX_VALUE, LockLevel.write );
+        assertThat( childLocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( child ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( child ), equalTo( 1 ) );
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 2 ) );
+
+        // Then lock file in child dir ans IO
+        try (OutputStream childFileOut = mgr.openOutputStream( childFile ))
+        {
+            IOUtils.write( "This is a test", childFileOut );
+            assertThat( mgr.isWriteLocked( childFile ), equalTo( true ) );
+            assertThat( mgr.isLockedByCurrentThread( childFile ), equalTo( true ) );
+            assertThat( mgr.getContextLockCount( childFile ), equalTo( 1 ) );
+            assertThat( mgr.getContextLockCount( child ), equalTo( 2 ) );
+            //FIXME: should this count be 2 or 3? Seems it should be 3, but 3 can not pass the test now.
+            assertThat( mgr.getContextLockCount( parent ), equalTo( 3 ) );
+        }
+
+        // IO for file closed, should start unlock LIFO
+        //FIXME: Not sure if it is reasonable that the file is still locked after outputstream close
+        assertThat( mgr.isWriteLocked( childFile ), equalTo( false ) );
+        assertThat( mgr.isLockedByCurrentThread( childFile ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( childFile ), equalTo( 0 ) );
+        assertThat( mgr.getContextLockCount( child ), equalTo( 1 ) );
+        //FIXME: This is also impacted by the upper fixme
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 2 ) );
+
+        // unlock child dir and calculate lock count
+        mgr.unlock( child );
+        //FIXME: Not sure if it is reasonable that the child dir is still locked after the sequence unlock
+        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+        assertThat( mgr.isLockedByCurrentThread( child ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( child ), equalTo( 0 ) );
+        //FIXME: This is also impacted by the upper fixme
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 1 ) );
+
+        // unlock parent dir and calculate lock count
+        mgr.unlock( parent );
+        //FIXME: Not sure if it is reasonable that the parent dir is still locked after the sequence unlock
+        assertThat( mgr.isWriteLocked( parent ), equalTo( false ) );
+        assertThat( mgr.isLockedByCurrentThread( parent ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 0 ) );
+
+    }
+
+    private File mkChildDir( String childName, File parent )
+    {
+        File child = parent.toPath().resolve( childName ).toFile();
+        return child.mkdir() ? child : null;
+    }
+
+    @Test
     public void twoFileReaders_CleanupFileEntryOnLastClose()
             throws Exception
     {
