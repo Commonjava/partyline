@@ -34,6 +34,7 @@ import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.commonjava.util.partyline.LockLevel.read;
 import static org.commonjava.util.partyline.LockOwner.getLockReservationName;
 
 /**
@@ -382,7 +383,8 @@ public class JoinableFileManager
      */
     public boolean isWriteLocked( final File file )
     {
-        return locks.getLockLevel( file ) != null;
+        LockLevel lockLevel = locks.getLockLevel( file );
+        return lockLevel != null && lockLevel.ordinal() >= read.ordinal();
     }
 
     /**

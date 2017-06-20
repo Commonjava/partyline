@@ -47,6 +47,8 @@ final class FileTree
 
     private static final long WAIT_TIMEOUT = 100;
 
+    private final Logger logger = LoggerFactory.getLogger( getClass() );
+
     private final Map<String, FileEntry> entryMap = new ConcurrentHashMap<>();
 
     private final Map<String, FileOperationLock> operationLocks = new ConcurrentHashMap<>();
@@ -111,16 +113,20 @@ final class FileTree
     LockLevel getLockLevel( File file )
     {
         FileEntry entry = getLockingEntry( file );
+        logger.trace( "Locking entry for file: {} is: {}", file, entry );
+        String path = file.getAbsolutePath();
         if ( entry == null )
         {
             return null;
         }
-        else if ( !entry.name.equals( file.getAbsolutePath() ) )
+        else if ( !entry.name.equals( path ) )
         {
-            return read;
+            logger.trace( "Returning parent lock level lock due to parent lock (level: {})", entry.lock.getLockLevel() );
+            return entry.lock.getLockLevel();
         }
         else
         {
+            logger.trace( "Returning lock level for this file as: {}", entry.lock.getLockLevel() );
             return entry.lock.getLockLevel();
         }
     }
@@ -154,7 +160,6 @@ final class FileTree
         {
             return withOpLock( f, ( opLock ) -> {
                 String ownerName = getLockReservationName();
-                Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
                 {
@@ -167,6 +172,11 @@ final class FileTree
                             logger.trace( "{} Closing file...", ownerName );
                             IOUtils.closeQuietly( entry.file );
                             entry.file = null;
+                        }
+
+                        if ( !unlockAssociatedEntries( entry, opLock ) )
+                        {
+                            return false;
                         }
 
                         entryMap.remove( entry.name );
@@ -194,16 +204,46 @@ final class FileTree
         }
         catch ( IOException e )
         {
-            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.error( "SHOULD NEVER HAPPEN: IOException trying to unlock: " + f, e );
         }
         catch ( InterruptedException e )
         {
-            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.warn( "Interrupted while trying to unlock: " + f );
         }
 
         return false;
+    }
+
+    private boolean unlockAssociatedEntries( final FileEntry entry, final FileOperationLock opLock )
+    {
+        // the 'alsoLocked' entry field constitutes a linked list of locked entries.
+        // When we unlock the topmost one, we need to unlock the ones that are linked too.
+        FileEntry alsoLocked = entry.alsoLocked;
+        while ( alsoLocked != null )
+        {
+            logger.trace( "ALSO Unlocking: {}", alsoLocked.name );
+            alsoLocked.lock.unlock();
+//
+//            {
+//                // FIXME: This is probably a little bit wrong, but in practice it should never fail.
+//                // I'm not sure how we should handle failure to decrement the lock count for this
+//                // ThreadContext. Should it cause the main unlock() method here to fail? Probably...
+//                logger.error( "FAILED to unlock associated entry for path: {}\n\nEntry: {}\n\n", alsoLocked, entry.name );
+//
+//                opLock.signal();
+//                logger.trace( "Unlock failed for: {}", entry.name );
+//                return false;
+//            }
+
+            if ( !alsoLocked.lock.isLocked() )
+            {
+                entryMap.remove( alsoLocked.name );
+            }
+
+            alsoLocked = alsoLocked.alsoLocked;
+        }
+
+        return true;
     }
 
     /**
@@ -223,7 +263,6 @@ final class FileTree
         try
         {
             withOpLock( f, ( opLock ) -> {
-                Logger logger = LoggerFactory.getLogger( getClass() );
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
                 {
@@ -237,10 +276,7 @@ final class FileTree
                         entry.file = null;
                     }
 
-                    if ( entry.alsoLocked != null )
-                    {
-                        entry.alsoLocked.lock.unlock();
-                    }
+                    unlockAssociatedEntries( entry, opLock );
 
                     entryMap.remove( entry.name );
 
@@ -258,12 +294,10 @@ final class FileTree
         }
         catch ( IOException e )
         {
-            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.error( "SHOULD NEVER HAPPEN: IOException trying to unlock: " + f, e );
         }
         catch ( InterruptedException e )
         {
-            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.warn( "Interrupted while trying to unlock: " + f );
         }
     }
@@ -292,7 +326,6 @@ final class FileTree
         }
         catch ( IOException e )
         {
-            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.error( "SHOULD NEVER HAPPEN: IOException trying to lock: " + file, e );
         }
 
@@ -328,7 +361,6 @@ final class FileTree
         return withOpLock( f, ( opLock ) -> {
             long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
 
-            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "{}: Trying to lock until: {}", System.currentTimeMillis(), end );
 
             String name = f.getAbsolutePath();
@@ -378,6 +410,14 @@ final class FileTree
                         else if ( name.startsWith( entry.name ) )
                         {
                             entry.lock.lock( label, lockLevel );
+
+                            FileEntry alsoLocked = entry.alsoLocked;
+                            while ( alsoLocked != null )
+                            {
+                                alsoLocked.lock.lock( label, read );
+                                alsoLocked = alsoLocked.alsoLocked;
+                            }
+
                             doFileLock = true;
                         }
                     }
@@ -459,7 +499,6 @@ final class FileTree
     {
         long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
 
-        Logger logger = LoggerFactory.getLogger( getClass() );
         while ( end < 1 || System.currentTimeMillis() < end )
         {
             T result = tryLock( realFile, "Open File for " + ( doOutput ? "output" : "input" ),
@@ -571,7 +610,6 @@ final class FileTree
      */
     private synchronized FileEntry getLockingEntry( File file )
     {
-        Logger logger = LoggerFactory.getLogger( getClass() );
         FileEntry entry;
 
         // search self and ancestors...
@@ -631,7 +669,6 @@ final class FileTree
     private <T> T withOpLock( File f, LockedFileOperation<T> op )
             throws IOException, InterruptedException
     {
-        Logger logger = LoggerFactory.getLogger( getClass() );
         String path = f.getAbsolutePath();
         FileOperationLock opLock = null;
 
@@ -753,7 +790,6 @@ final class FileTree
                 callbacks.closed();
             }
 
-            Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "unlocking: {}", file );
 
             // already inside lock from JoinableFile.reallyClose().

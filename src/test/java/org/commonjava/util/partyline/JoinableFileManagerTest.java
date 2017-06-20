@@ -195,7 +195,6 @@ public class JoinableFileManagerTest
     }
 
     @Test
-    @Ignore( "This test can not pass now, need fix" )
     public void lockTwoNestedDirsThenLockFile()
             throws Exception
     {
@@ -232,8 +231,8 @@ public class JoinableFileManagerTest
         }
 
         // IO for file closed, should start unlock LIFO
-        //FIXME: Not sure if it is reasonable that the file is still locked after outputstream close
-        assertThat( mgr.isWriteLocked( childFile ), equalTo( false ) );
+        // NOTE: The child dir (parent of childFile) is still write-locked from another operation.
+        assertThat( mgr.isWriteLocked( childFile ), equalTo( true ) );
         assertThat( mgr.isLockedByCurrentThread( childFile ), equalTo( false ) );
         assertThat( mgr.getContextLockCount( childFile ), equalTo( 0 ) );
         assertThat( mgr.getContextLockCount( child ), equalTo( 1 ) );
@@ -242,8 +241,8 @@ public class JoinableFileManagerTest
 
         // unlock child dir and calculate lock count
         mgr.unlock( child );
-        //FIXME: Not sure if it is reasonable that the child dir is still locked after the sequence unlock
-        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+        // Child directory is still write-locked because its parent directory was previous locked by another operation
+        assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
         assertThat( mgr.isLockedByCurrentThread( child ), equalTo( false ) );
         assertThat( mgr.getContextLockCount( child ), equalTo( 0 ) );
         //FIXME: This is also impacted by the upper fixme
@@ -255,6 +254,10 @@ public class JoinableFileManagerTest
         assertThat( mgr.isWriteLocked( parent ), equalTo( false ) );
         assertThat( mgr.isLockedByCurrentThread( parent ), equalTo( false ) );
         assertThat( mgr.getContextLockCount( parent ), equalTo( 0 ) );
+
+        // Releasing the lock on the parent dir should release the last remaining lock on these children too.
+        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+        assertThat( mgr.isWriteLocked( childFile ), equalTo( false ) );
 
     }
 

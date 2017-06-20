@@ -134,7 +134,7 @@ final class LockOwner
 
         Logger logger = LoggerFactory.getLogger( getClass() );
 
-        logger.trace( "\n\n\n{}\n  Incremented lock count to: {} \n  Owner: {}\n  Ref: {}\n\n\n", path, lockCount, ownerName, label );
+        logger.trace( "\n\n\n{}\n  Incremented lock count.\n  New count is: {} \n  Owner: {}\n  Ref: {}\n\n\n", path, lockCount, ownerName, label );
         return lockCount;
     }
 
@@ -149,7 +149,7 @@ final class LockOwner
         }
 
         int count = lockOwnerInfo.locks.decrementAndGet();
-        logger.trace( "Decremented lock count in: {} for owner: {}. New count is: {}\nLock Info:\n{}", this.path, ownerName, count, getLockInfo() );
+        logger.trace( "Decremented lock count.\n  Path: {}\n  for owner: {}\n  New count is: {}\nLock Info:\n{}", this.path, ownerName, count, getLockInfo() );
 
         if ( count < 1 )
         {
