@@ -132,8 +132,6 @@ final class LockOwner
 
         int lockCount = lockOwnerInfo.locks.incrementAndGet();
 
-        Logger logger = LoggerFactory.getLogger( getClass() );
-
         logger.trace( "\n\n\n{}\n  Incremented lock count.\n  New count is: {} \n  Owner: {}\n  Ref: {}\n\n\n", path, lockCount, ownerName, label );
         return lockCount;
     }

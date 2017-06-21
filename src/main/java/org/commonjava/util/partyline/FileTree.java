@@ -167,12 +167,8 @@ final class FileTree
                     if ( entry.lock.unlock() )
                     {
                         logger.trace( "Unlocked; clearing resources associated with lock" );
-                        if ( entry.file != null )
-                        {
-                            logger.trace( "{} Closing file...", ownerName );
-                            IOUtils.closeQuietly( entry.file );
-                            entry.file = null;
-                        }
+
+                        closeEntryFile( entry, ownerName );
 
                         if ( !unlockAssociatedEntries( entry, opLock ) )
                         {
@@ -269,12 +265,8 @@ final class FileTree
                     logger.trace( "Unlocking {}", f );
                     entry.lock.clearLocks();
                     logger.trace( "Unlocked; clearing resources associated with lock" );
-                    if ( entry.file != null )
-                    {
-                        logger.trace( "Closing file..." );
-                        IOUtils.closeQuietly( entry.file );
-                        entry.file = null;
-                    }
+
+                    closeEntryFile( entry, "" );
 
                     unlockAssociatedEntries( entry, opLock );
 
@@ -299,6 +291,16 @@ final class FileTree
         catch ( InterruptedException e )
         {
             logger.warn( "Interrupted while trying to unlock: " + f );
+        }
+    }
+
+    private void closeEntryFile( FileEntry entry, String extraTraceMsg )
+    {
+        if ( entry.file != null )
+        {
+            logger.trace( "{} Closing file...", extraTraceMsg == null ? "" : extraTraceMsg );
+            IOUtils.closeQuietly( entry.file );
+            entry.file = null;
         }
     }
 
