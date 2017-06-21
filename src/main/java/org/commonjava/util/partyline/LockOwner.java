@@ -79,12 +79,20 @@ final class LockOwner
             return true;
         }
 
+        LockOwnerInfo ownerInfo = locks.get( lockOwner );
+        if ( ownerInfo != null && ownerInfo.level == lockLevel )
+        {
+            increment(label, lockLevel);
+            return true;
+        }
+
         switch ( lockLevel )
         {
             case delete:
             case write:
             {
-                logger.trace( "[ABORT] Trying to lock at level: {} from owner: {}. Existing lock is: {}", lockLevel, lockOwner, this.dominantLockLevel );
+                logger.trace( "[ABORT] Trying to lock at level: {} from owner: {}. Existing lock is: {}", lockLevel,
+                              lockOwner, this.dominantLockLevel );
                 return false;
             }
             case read:
@@ -124,9 +132,7 @@ final class LockOwner
 
         int lockCount = lockOwnerInfo.locks.incrementAndGet();
 
-        Logger logger = LoggerFactory.getLogger( getClass() );
-
-        logger.trace( "{} Incremented lock count to: {} for owner: {} with ref: {}", this, lockCount, ownerName, label );
+        logger.trace( "\n\n\n{}\n  Incremented lock count.\n  New count is: {} \n  Owner: {}\n  Ref: {}\n\n\n", path, lockCount, ownerName, label );
         return lockCount;
     }
 
@@ -141,7 +147,7 @@ final class LockOwner
         }
 
         int count = lockOwnerInfo.locks.decrementAndGet();
-        logger.trace( "Decremented lock count in: {} for owner: {}. New count is: {}\nLock Info:\n{}", this.path, ownerName, count, getLockInfo() );
+        logger.trace( "Decremented lock count.\n  Path: {}\n  for owner: {}\n  New count is: {}\nLock Info:\n{}", this.path, ownerName, count, getLockInfo() );
 
         if ( count < 1 )
         {

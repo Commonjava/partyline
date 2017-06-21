@@ -29,8 +29,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -57,17 +57,24 @@ public class JoinableFileManagerTest
     private final JoinableFileManager mgr = new JoinableFileManager();
 
     @Test
-    @Ignore( "Deadlocks currently, needs to be fixed!" )
     public void lockAndUnlockTwiceInSequenceFromOneThread()
             throws IOException, InterruptedException
     {
-        File f = temp.newFolder();
-        mgr.lock( f, Long.MAX_VALUE, LockLevel.write );
-        mgr.lock( f, Long.MAX_VALUE, LockLevel.write );
-
-        mgr.unlock( f );
-        mgr.unlock( f );
+        File dir = temp.newFolder();
+        mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 1 ));
+        mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 2 ));
+        mgr.unlock( dir );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 1 ));
+        mgr.unlock( dir );
+        assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+        assertThat(  mgr.getContextLockCount( dir ), equalTo( 0 ));
     }
+
 
     @Test
     public void lockDirThenLockFile()
@@ -80,16 +87,20 @@ public class JoinableFileManagerTest
         assertThat( dirLocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
         assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ) );
 
         try (OutputStream out = mgr.openOutputStream( child, 2000 ))
         {
             assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+            assertThat( mgr.getContextLockCount( dir ), equalTo( 2 ) );
             IOUtils.write( "This is a test", out );
         }
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ) );
 
         boolean unlocked = mgr.unlock( dir );
         assertThat( unlocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 0 ) );
 
         assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
     }
@@ -127,72 +138,133 @@ public class JoinableFileManagerTest
     {
         File dir = temp.newFolder();
 
-        final Map<String, File> files = new HashMap<>( filesNum );
+        final List<File> files = new ArrayList<>( filesNum );
 
         for ( int i = 1; i <= filesNum; i++ )
         {
             final String file = "child" + i + ".txt";
-            files.put( file, dir.toPath().resolve( file ).toFile() );
+            files.add( dir.toPath().resolve( file ).toFile() );
         }
 
-        boolean dirLocked = mgr.lock( dir, timeout, LockLevel.write );
+        final boolean dirLocked = mgr.lock( dir, timeout, LockLevel.write );
         assertThat( dirLocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
         assertThat( mgr.isLockedByCurrentThread( dir ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ));
 
-        Map<String, OutputStream> fileOuts = new HashMap<>( filesNum );
+        final List<OutputStream> fileOuts = new ArrayList<>( filesNum );
 
-        for ( int i = 1; i <= filesNum; i++ )
+        int count = 1;
+        for ( File f : files )
         {
-            final String fileName = "child" + i + ".txt";
-            final File f = files.get( "child" + i + ".txt" );
-            fileOuts.put( fileName, mgr.openOutputStream( f, timeout ) );
+            fileOuts.add( mgr.openOutputStream( f, timeout ) );
+            assertThat( mgr.getContextLockCount( dir ), equalTo( ++count ) );
         }
 
-        for (int i=1; i<= filesNum; i++){
-            final File f = files.get( "child" + i + ".txt" );
+        for ( File f : files )
+        {
             assertThat( mgr.isWriteLocked( f ), equalTo( true ) );
         }
 
-        for ( int i = filesNum; i > 1; i-- )
+        for ( int i = filesNum - 1; i > 0; i-- )
         {
-            final OutputStream out = fileOuts.get( "child" + i + ".txt" );
+            final OutputStream out = fileOuts.get( i );
             IOUtils.write( "This is a test", out );
             out.close();
+            assertThat( mgr.getContextLockCount( dir ), equalTo( i + 1 ) );
         }
 
         assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
 
-        final OutputStream out1 = fileOuts.get( "child1.txt" );
+        final OutputStream out1 = fileOuts.get( 0 );
         IOUtils.write( "This is a test", out1 );
         out1.close();
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 1 ) );
 
         boolean unlocked = mgr.unlock( dir );
         assertThat( unlocked, equalTo( true ) );
         assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( dir ), equalTo( 0 ) );
 
-        for ( int i = filesNum; i > 0; i-- )
+        for ( int i = filesNum-1; i >= 0; i-- )
         {
-            final File f = files.get( "child" + i + ".txt" );
+            final File f = files.get( i );
             assertThat( mgr.isWriteLocked( f ), equalTo( false ) );
         }
 
     }
 
     @Test
-    @Ignore("A case that needs fix")
-    public void lockTwiceForOneDir()
-            throws IOException, InterruptedException
+    public void lockTwoNestedDirsThenLockFile()
+            throws Exception
     {
-        File dir = temp.newFolder();
-        mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
-        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
-        mgr.lock( dir, Long.MAX_VALUE, LockLevel.write );
-        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
-        mgr.unlock( dir );
-        assertThat( mgr.isWriteLocked( dir ), equalTo( true ) );
-        mgr.unlock( dir );
-        assertThat( mgr.isWriteLocked( dir ), equalTo( false ) );
+        File parent = temp.newFolder();
+        File child = mkChildDir( "child", parent );
+        final String file = "childFile.txt";
+        File childFile = child.toPath().resolve( file ).toFile();
+
+        // First lock parent dir
+        final boolean parentLocked = mgr.lock( parent, Long.MAX_VALUE, LockLevel.write );
+        assertThat( parentLocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( parent ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( parent ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 1 ) );
+
+        // Then lock child dir
+        final boolean childLocked = mgr.lock( child, Long.MAX_VALUE, LockLevel.write );
+        assertThat( childLocked, equalTo( true ) );
+        assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( child ), equalTo( true ) );
+        assertThat( mgr.getContextLockCount( child ), equalTo( 1 ) );
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 2 ) );
+
+        // Then lock file in child dir ans IO
+        try (OutputStream childFileOut = mgr.openOutputStream( childFile ))
+        {
+            IOUtils.write( "This is a test", childFileOut );
+            assertThat( mgr.isWriteLocked( childFile ), equalTo( true ) );
+            assertThat( mgr.isLockedByCurrentThread( childFile ), equalTo( true ) );
+            assertThat( mgr.getContextLockCount( childFile ), equalTo( 1 ) );
+            assertThat( mgr.getContextLockCount( child ), equalTo( 2 ) );
+            //FIXME: should this count be 2 or 3? Seems it should be 3, but 3 can not pass the test now.
+            assertThat( mgr.getContextLockCount( parent ), equalTo( 3 ) );
+        }
+
+        // IO for file closed, should start unlock LIFO
+        // NOTE: The child dir (parent of childFile) is still write-locked from another operation.
+        assertThat( mgr.isWriteLocked( childFile ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( childFile ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( childFile ), equalTo( 0 ) );
+        assertThat( mgr.getContextLockCount( child ), equalTo( 1 ) );
+        //FIXME: This is also impacted by the upper fixme
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 2 ) );
+
+        // unlock child dir and calculate lock count
+        mgr.unlock( child );
+        // Child directory is still write-locked because its parent directory was previous locked by another operation
+        assertThat( mgr.isWriteLocked( child ), equalTo( true ) );
+        assertThat( mgr.isLockedByCurrentThread( child ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( child ), equalTo( 0 ) );
+        //FIXME: This is also impacted by the upper fixme
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 1 ) );
+
+        // unlock parent dir and calculate lock count
+        mgr.unlock( parent );
+        //FIXME: Not sure if it is reasonable that the parent dir is still locked after the sequence unlock
+        assertThat( mgr.isWriteLocked( parent ), equalTo( false ) );
+        assertThat( mgr.isLockedByCurrentThread( parent ), equalTo( false ) );
+        assertThat( mgr.getContextLockCount( parent ), equalTo( 0 ) );
+
+        // Releasing the lock on the parent dir should release the last remaining lock on these children too.
+        assertThat( mgr.isWriteLocked( child ), equalTo( false ) );
+        assertThat( mgr.isWriteLocked( childFile ), equalTo( false ) );
+
+    }
+
+    private File mkChildDir( String childName, File parent )
+    {
+        File child = parent.toPath().resolve( childName ).toFile();
+        return child.mkdir() ? child : null;
     }
 
     @Test
