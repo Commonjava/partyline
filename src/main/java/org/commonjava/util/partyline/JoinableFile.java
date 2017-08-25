@@ -327,6 +327,9 @@ public final class JoinableFile
                 {
                     logger.trace( "Setting length of: {} to written length: {}", path, flushed );
                     randomAccessFile.setLength( flushed );
+                    /* channel.force() is not enough to force system cached data to be written to underlying
+                         device if the file does not reside on a local device (like NFS) */
+                    randomAccessFile.getFD().sync();
                 }
 
                 // if the channel is null, this is a directory lock.
