@@ -37,11 +37,11 @@ import static org.junit.Assert.fail;
 public class ManyReadersWithPreExistingWriterTest
         extends AbstractJointedIOTest
 {
-    private static final int THREADS = 100;
+    private static final int THREADS = 30;
 
     private static final long WAIT = 0;
 
-    private static final int ITERATIONS = 10;
+    private static final int ITERATIONS = 2;
 
     private ExecutorService executor = new ContextSensitiveExecutorService( Executors.newCachedThreadPool() );
 
