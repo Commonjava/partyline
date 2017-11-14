@@ -9,6 +9,7 @@
   </appender>
 
   <logger name="org.commonjava.util.partyline" level="TRACE" />
+  <logger name="org.commonjava.util.cdi.weft" level="TRACE" />
 
   <root level="TRACE">
     <appender-ref ref="STDOUT" />

@@ -551,9 +551,11 @@ public final class JoinableFile
 
         private boolean closed = false;
 
-        private int jointIdx;
+        private final int jointIdx;
 
-        private String originalThreadName;
+        private final String originalThreadName;
+
+        private final long ctorTime;
 
         /**
          * Map the content already written to disk for reading. If the flushed count exceeds MAX_BUFFER_SIZE, use the max instead.
@@ -564,6 +566,41 @@ public final class JoinableFile
             this.jointIdx = jointIdx;
             buf = channel.map( MapMode.READ_ONLY, 0, flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed );
             this.originalThreadName = Thread.currentThread().getName();
+            this.ctorTime = System.nanoTime();
+        }
+
+        @Override
+        public boolean equals( final Object o )
+        {
+            if ( this == o )
+            {
+                return true;
+            }
+            if ( !( o instanceof JoinInputStream ) )
+            {
+                return false;
+            }
+
+            final JoinInputStream that = (JoinInputStream) o;
+
+            if ( jointIdx != that.jointIdx )
+            {
+                return false;
+            }
+            if ( ctorTime != that.ctorTime )
+            {
+                return false;
+            }
+            return originalThreadName.equals( that.originalThreadName );
+        }
+
+        @Override
+        public int hashCode()
+        {
+            int result = jointIdx;
+            result = 31 * result + originalThreadName.hashCode();
+            result = 31 * result + (int) ( ctorTime ^ ( ctorTime >>> 32 ) );
+            return result;
         }
 
         /**
