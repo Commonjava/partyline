@@ -37,7 +37,7 @@ public class JoinableFileManagerPerformanceTest
             throws Exception
     {
         final File f = temp.newFile( "bigfile.txt" );
-        final File fm = temp.newFile( "bigfileMrg.txt" );
+        final File fm = temp.newFile( "bigfileJFM.txt" );
         String content = createBigFileContent();
 
         // JFM file io
@@ -65,11 +65,12 @@ public class JoinableFileManagerPerformanceTest
                                javaFileWritingTime ) );
 
         //TODO: Seems current JFM writing performance is slower about 3 times than normal java File IO when writing a 50m file
-        if ( jfmFileWritingTime / javaFileWritingTime > 7 )
+        final int times = 10;
+        if ( jfmFileWritingTime / javaFileWritingTime > times )
         {
             fail( String.format(
-                    "JFM writing performance is 7 times slower than normal Java FO writing against a %dm file",
-                    f.length() / 1024 / 1024 ) );
+                    "JFM writing performance is %d times slower than normal Java FO writing against a %dm file",
+                    times, f.length() / 1024 / 1024 ) );
         }
     }
 
@@ -113,11 +114,12 @@ public class JoinableFileManagerPerformanceTest
                                javaFileReadingTime ) );
 
         //TODO: Seems current JFM reading performance is slower more than 10 times than normal java File IO when reading a 50m file
-        if ( jfmFileReadingTime / javaFileReadingTime > 15 )
+        final int times = 15;
+        if ( jfmFileReadingTime / javaFileReadingTime > times )
         {
             fail( String.format(
-                    "JFM reading performance is 15 times slower than normal Java FO reading against a %dm file",
-                    f.length() / 1024 / 1024 ) );
+                    "JFM reading performance is %d times slower than normal Java FO reading against a %dm file",
+                    times, f.length() / 1024 / 1024 ) );
         }
     }
 
