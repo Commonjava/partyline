@@ -537,7 +537,7 @@ public class JoinableFileManagerTest
     }
 
     @Test
-    public void openInputStream_cleanupCurrentThread_openOutputStream()
+    public void openInputStream_clearThreadContext_openOutputStream()
         throws Exception
     {
         ThreadContext.getContext( true );
@@ -545,7 +545,9 @@ public class JoinableFileManagerTest
         final File f = temp.newFile("test.txt");
         FileUtils.write( f, "This is first pass" );
         mgr.openInputStream( f );
-        mgr.cleanupCurrentThread();
+//        mgr.cleanupCurrentThread();
+        ThreadContext.clearContext();
+        ThreadContext.getContext( true );
         OutputStream outputStream = mgr.openOutputStream( f );
 
         outputStream.close();

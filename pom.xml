@@ -39,7 +39,7 @@
   </scm>
   
   <properties>
-    <weftVersion>1.4</weftVersion>
+    <weftVersion>1.5-SNAPSHOT</weftVersion>
 
     <projectOwner>Red Hat, Inc.</projectOwner>
     <javaVersion>1.8</javaVersion>

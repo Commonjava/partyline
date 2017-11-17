@@ -27,12 +27,18 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+
+import static org.apache.commons.lang.StringUtils.join;
 
 import static org.commonjava.util.partyline.LockLevel.read;
 import static org.commonjava.util.partyline.LockOwner.getLockReservationName;
@@ -49,6 +55,70 @@ public class JoinableFileManager
     public static final String PARTYLINE_OPEN_FILES = "partyline-open-files";
 
     public static final long DEFAULT_TIMEOUT = 1000;
+
+    private static final int MAX_CLEANUP_ITERATIONS = 3;
+    private static final long CLEANUP_ITERATION_WAIT = 1000;
+
+    /**
+     * Consumer of {@link ThreadContext} which clears the {@link #PARTYLINE_OPEN_FILES} map by closing all open files
+     * in that map, trying each one up to {@link #MAX_CLEANUP_ITERATIONS} times before giving up. Between cleanup
+     * iterations, it will pause {@link #CLEANUP_ITERATION_WAIT} milliseconds.
+     *
+     * @since 1.9.5
+     */
+    private static final Consumer<ThreadContext> FILE_CLEANUP = (tc)->{
+        Logger logger = LoggerFactory.getLogger( JoinableFileManager.class );
+
+        Map<String, WeakReference<Closeable>> open =
+                (Map<String, WeakReference<Closeable>>) tc.remove( PARTYLINE_OPEN_FILES );
+
+        if ( open != null )
+        {
+            int iterations = 0;
+            while( open.size() > 0 && iterations < MAX_CLEANUP_ITERATIONS )
+            {
+                for(String key: new HashSet<>( open.keySet()))
+                {
+                    WeakReference<Closeable> ref = open.remove( key );
+                    Closeable c = ref == null ? null : ref.get();
+
+                    if ( c != null )
+                    {
+                        try
+                        {
+                            c.close();
+                        }
+                        catch ( IOException ex )
+                        {
+                            logger.error( "Failed to close: " + key + ". Will retry.", ex );
+                            open.put( key, ref );
+                        }
+                    }
+                }
+
+                if ( !open.isEmpty() )
+                {
+                    try
+                    {
+                        Thread.sleep( CLEANUP_ITERATION_WAIT );
+                    }
+                    catch ( InterruptedException e )
+                    {
+                        logger.warn("JoinableFileManager cleanup routine interrupted! Aborting.");
+                        break;
+                    }
+                }
+
+                iterations++;
+            }
+
+            if ( !open.isEmpty() )
+            {
+                logger.error( "JoinableFileManager cleanup routine giving up! {} files remain unclosed:\n\n  - {}\n\n",
+                              open.size(), join( open.keySet(), "\n  - " ) );
+            }
+        }
+    };
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
@@ -74,35 +144,12 @@ public class JoinableFileManager
      * a separate thread for reading / writing, while the original thread does something else. However, when all threads
      * related to a particular call or user request are finished, we need to ensure that request gets cleaned up. This
      * method enables that.
+     *
+     * @see #FILE_CLEANUP
      */
     public void cleanupCurrentThread()
     {
-        ThreadContext context = ThreadContext.getContext( false );
-        if ( context == null )
-        {
-            return;
-        }
-
-        Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) context.remove( PARTYLINE_OPEN_FILES );
-        if ( open != null )
-        {
-            open.entrySet().parallelStream().forEach( ( e ) -> {
-                String name = e.getKey();
-                Closeable c = e.getValue().get();
-                if ( c != null )
-                {
-                    try
-                    {
-                        c.close();
-                    }
-                    catch ( IOException ex )
-                    {
-                        logger.error( "Failed to close: " + name + ". Re-adding to thread context.", ex );
-                        addToContext( name, c );
-                    }
-                }
-            } );
-        }
+        // NOP, now handled by ThreadContext finalizer.
     }
 
     /**
@@ -305,13 +352,18 @@ public class JoinableFileManager
         ThreadContext threadContext = ThreadContext.getContext( false );
         if ( closeable != null && threadContext != null )
         {
-            Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) threadContext.get( PARTYLINE_OPEN_FILES );
-            if ( open == null )
+            synchronized ( threadContext )
             {
-                open = new WeakHashMap<>();
-                threadContext.put( PARTYLINE_OPEN_FILES, open );
+                Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) threadContext.get( PARTYLINE_OPEN_FILES );
+                if ( open == null )
+                {
+                    open = new WeakHashMap<>();
+                    threadContext.put( PARTYLINE_OPEN_FILES, open );
+                }
+                open.put( name, new WeakReference<>( closeable ) );
+
+                threadContext.registerFinalizer( FILE_CLEANUP );
             }
-            open.put( name, new WeakReference<>( closeable ) );
         }
     }
 
