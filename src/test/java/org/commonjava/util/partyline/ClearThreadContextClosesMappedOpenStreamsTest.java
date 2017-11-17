@@ -30,7 +30,7 @@ import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
-public class CleanupThreadContextHandleTest
+public class ClearThreadContextClosesMappedOpenStreamsTest
                 extends AbstractJointedIOTest
 {
 
@@ -49,7 +49,7 @@ public class CleanupThreadContextHandleTest
                             (Map<String, WeakReference<Closeable>>) context.get( PARTYLINE_OPEN_FILES );
             assertThat( open1.size(), equalTo( 1 ) );
 
-            manager.cleanupCurrentThread();
+            ThreadContext.clearContext();
             Map<String, WeakReference<Closeable>> open2 =
                             (Map<String, WeakReference<Closeable>>) context.get( PARTYLINE_OPEN_FILES );
             assertThat( open2, equalTo( null ) );
