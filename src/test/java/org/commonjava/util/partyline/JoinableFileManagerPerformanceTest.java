@@ -38,15 +38,33 @@ public class JoinableFileManagerPerformanceTest
     {
         final File f = temp.newFile( "bigfile.txt" );
         final File fm = temp.newFile( "bigfileJFM.txt" );
+        final File jft = temp.newFile( "bigfileJF.txt" );
+
         String content = createBigFileContent();
 
-        // JFM file io
+        JoinableFile jf = new JoinableFile( jft, new LockOwner( jft.getPath(), "write test", LockLevel.write ), true);
         long start = System.currentTimeMillis();
+        System.out.println("Opening output...");
+        try(OutputStream out = jf.getOutputStream())
+        {
+            System.out.println("Writing content");
+            out.write( content.getBytes() );
+            System.out.println("closing stream");
+
+        }
+        long end = System.currentTimeMillis();
+        System.out.println("closing file");
+        jf.close();
+        System.out.println("done");
+        long jfTime = end-start;
+
+        // JFM file io
+        start = System.currentTimeMillis();
         try (OutputStream out = mgr.openOutputStream( fm ))
         {
             out.write( content.getBytes() );
         }
-        long end = System.currentTimeMillis();
+        end = System.currentTimeMillis();
         final long jfmFileWritingTime = end - start;
 
         // Normal java file io
@@ -58,11 +76,11 @@ public class JoinableFileManagerPerformanceTest
         end = System.currentTimeMillis();
         final long javaFileWritingTime = end - start;
 
-        System.out.println( String.format( "File size: JFM file: %dM; Java FO file: %dM", fm.length() / 1024 / 1024,
+        System.out.println( String.format( "File size: JFM file: %dM; JF file: %dM; Java FO file: %dM", fm.length() / 1024 / 1024, jft.length() / 1024 / 1024,
                                            f.length() / 1024 / 1024 ) );
-        System.out.println(
-                String.format( "File IO time comparison: JFM writing: %dms; Java FO writing: %dms", jfmFileWritingTime,
-                               javaFileWritingTime ) );
+
+        System.out.printf( "File IO time comparison: JFM writing: %dms; JF writing: %dms; Java FO writing: %dms. Ratio JFM/FO: %d, JF/FO: %d\n", jfmFileWritingTime,
+                           jfTime, javaFileWritingTime, (jfmFileWritingTime/javaFileWritingTime), (jfTime/javaFileWritingTime) );
 
         //TODO: Seems current JFM writing performance is slower about 3 times than normal java File IO when writing a 50m file
         final int times = 10;
@@ -70,7 +88,7 @@ public class JoinableFileManagerPerformanceTest
         {
             fail( String.format(
                     "JFM writing performance is %d times slower than normal Java FO writing against a %dm file",
-                    times, f.length() / 1024 / 1024 ) );
+                    (jfmFileWritingTime/javaFileWritingTime), f.length() / 1024 / 1024 ) );
         }
     }
 
@@ -109,9 +127,8 @@ public class JoinableFileManagerPerformanceTest
         final long javaFileReadingTime = end - start;
 
         System.out.println( String.format( "File size is: %dM", f.length() / 1024 / 1024 ) );
-        System.out.println(
-                String.format( "File IO time comparison: JFM reading: %dms; Java FO reading: %dms", jfmFileReadingTime,
-                               javaFileReadingTime ) );
+        System.out.printf( "File IO time comparison: JFM reading: %dms; Java FO reading: %dms. Ratio: %d\n", jfmFileReadingTime,
+                               javaFileReadingTime, (jfmFileReadingTime/javaFileReadingTime) );
 
         //TODO: Seems current JFM reading performance is slower more than 10 times than normal java File IO when reading a 50m file
         final int times = 15;
@@ -119,7 +136,7 @@ public class JoinableFileManagerPerformanceTest
         {
             fail( String.format(
                     "JFM reading performance is %d times slower than normal Java FO reading against a %dm file",
-                    times, f.length() / 1024 / 1024 ) );
+                    (jfmFileReadingTime/javaFileReadingTime), f.length() / 1024 / 1024 ) );
         }
     }
 
