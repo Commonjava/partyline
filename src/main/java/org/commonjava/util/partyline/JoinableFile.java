@@ -64,7 +64,7 @@ import static org.commonjava.util.partyline.FileTree.DEFAULT_LOCK_TIMEOUT;
 public final class JoinableFile
         implements AutoCloseable, Closeable
 {
-    private static final int CHUNK_SIZE = 1024 * 8; // 8kb
+    private static final int CHUNK_SIZE = 1024 * 1024; // 1mb
 
     private final FileChannel channel;
 
