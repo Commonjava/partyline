@@ -28,15 +28,12 @@ import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 import static org.apache.commons.lang.StringUtils.join;
 
@@ -357,8 +354,8 @@ public class JoinableFileManager
                 Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) threadContext.get( PARTYLINE_OPEN_FILES );
                 if ( open == null )
                 {
-                    open = new WeakHashMap<>();
-                    threadContext.put( PARTYLINE_OPEN_FILES, open );
+                    open = new HashMap<>();
+                    threadContext.put( PARTYLINE_OPEN_FILES, open ); // FILE_CLEANUP will remove it
                 }
                 open.put( name, new WeakReference<>( closeable ) );
 
