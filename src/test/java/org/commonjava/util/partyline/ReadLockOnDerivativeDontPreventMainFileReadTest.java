@@ -100,12 +100,12 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
                 switch ( k )
                 {
                     case 0:
-                        file = dFile;
-                        name = derivative;
-                        break;
-                    case 1:
                         file = mFile;
                         name = main;
+                        break;
+                    case 1:
+                        file = dFile;
+                        name = derivative;
                         break;
                 }
                 Thread.currentThread().setName( name );
@@ -124,6 +124,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
                     latch.countDown();
                 }
             } );
+            Thread.sleep( 1000 ); // make the fragile BMRule to always work
         }
 
         latch.await();
