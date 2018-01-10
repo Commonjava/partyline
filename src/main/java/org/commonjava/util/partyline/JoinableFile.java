@@ -471,10 +471,13 @@ public final class JoinableFile
             }
 
             buf.flip();
-            int count;
+            int count = 0;
             if ( channel != null )
             {
-                count = channel.write( buf );
+                while ( buf.hasRemaining() )
+                {
+                    count += channel.write( buf );
+                }
                 channel.force( false );
             }
             else
