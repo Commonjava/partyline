@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
-import java.io.SyncFailedException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
@@ -34,10 +33,6 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
-
-import static org.commonjava.util.partyline.FileTree.DEFAULT_LOCK_TIMEOUT;
 
 /**
  * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
@@ -465,33 +460,33 @@ public final class JoinableFile
         public void flush()
                 throws IOException
         {
-            if ( closed )
-            {
-                throw new IOException( "Cannot write to closed stream!" );
-            }
-
-            buf.flip();
-            int count = 0;
-            if ( channel != null )
-            {
-                while ( buf.hasRemaining() )
-                {
-                    count += channel.write( buf );
-                }
-                channel.force( false );
-            }
-            else
-            {
-                throw new IllegalStateException(
-                        "File channel is null, is the file descriptor " + path + " a directory?" );
-            }
-
-            buf.clear();
-
-            super.flush();
-
             synchronized ( JoinableFile.this )
             {
+                if ( closed )
+                {
+                    throw new IOException( "Cannot write to closed stream!" );
+                }
+
+                buf.flip();
+                int count = 0;
+                if ( channel != null )
+                {
+                    while ( buf.hasRemaining() )
+                    {
+                        count += channel.write( buf );
+                    }
+                    channel.force( false );
+                }
+                else
+                {
+                    throw new IllegalStateException(
+                            "File channel is null, is the file descriptor " + path + " a directory?" );
+                }
+
+                buf.clear();
+
+                super.flush();
+
                 flushed += count;
                 JoinableFile.this.notifyAll();
             }
@@ -513,14 +508,17 @@ public final class JoinableFile
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "OUT :: close() called" );
-            if ( closed )
+            synchronized ( JoinableFile.this )
             {
-                logger.trace( "OUT :: already closed" );
-                return;
+                if ( closed )
+                {
+                    logger.trace( "OUT :: already closed" );
+                    return;
+                }
+                flush();
+                super.close();
+                closed = true;
             }
-            flush();
-            super.close();
-            closed = true;
             JoinableFile.this.close();
         }
 
