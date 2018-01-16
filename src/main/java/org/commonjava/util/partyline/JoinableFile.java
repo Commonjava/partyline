@@ -439,17 +439,20 @@ public final class JoinableFile
         public void write( final int b )
                 throws IOException
         {
-            if ( closed )
+            synchronized ( JoinableFile.this )
             {
-                throw new IOException( "Cannot write to closed stream!" );
-            }
+                if ( closed )
+                {
+                    throw new IOException( "Cannot write to closed stream!" );
+                }
 
-            if ( buf.position() == buf.capacity() )
-            {
-                flush();
-            }
+                if ( buf.position() == buf.capacity() )
+                {
+                    flush();
+                }
 
-            buf.put( (byte) ( b & 0xff ) );
+                buf.put( (byte) ( b & 0xff ) );
+            }
         }
 
         /**
