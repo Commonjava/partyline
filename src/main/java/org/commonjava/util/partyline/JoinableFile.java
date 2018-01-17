@@ -610,13 +610,13 @@ public final class JoinableFile
         public int read()
                 throws IOException
         {
-            if ( closed )
-            {
-                throw new IOException( "Joint: " + jointIdx + ": Cannot read from closed stream!" );
-            }
-
             synchronized ( JoinableFile.this )
             {
+                if ( closed )
+                {
+                    throw new IOException( "Joint: " + jointIdx + ": Cannot read from closed stream!" );
+                }
+
                 //                Logger logger = LoggerFactory.getLogger( getClass() );
                 //                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
                 while ( read == flushed )
@@ -683,13 +683,16 @@ public final class JoinableFile
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "Joint: {} close() called.", jointIdx );
-            if ( closed )
+            synchronized ( JoinableFile.this )
             {
-                logger.trace( "Joint: {} already closed.", jointIdx );
-                return;
+                if ( closed )
+                {
+                    logger.trace( "Joint: {} already closed.", jointIdx );
+                    return;
+                }
+                closed = true;
+                super.close();
             }
-            closed = true;
-            super.close();
             jointClosed( this, originalThreadName );
         }
 
