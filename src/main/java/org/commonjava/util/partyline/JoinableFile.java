@@ -69,7 +69,7 @@ public final class JoinableFile
 
     private final Map<Integer, JoinInputStream> inputs = new HashMap<>();
 
-    private long flushed = 0;
+    private volatile long flushed = 0;
 
     private final String path;
 
@@ -645,11 +645,7 @@ public final class JoinableFile
             {
                 //                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
                 // map more content from the file, reading past our read-bytes count up to the number of flushed bytes from the parent stream
-                long end = flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read;
-                if ( (read + end ) > channel.size() )
-                {
-                    end = channel.size() - read;
-                }
+                long end = flushed - read > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read;
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 logger.trace( "Buffering {} - {} (size is: {})\n", read, read+end, channel.size() );
