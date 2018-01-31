@@ -478,7 +478,7 @@ public final class JoinableFile
                     {
                         count += channel.write( buf );
                     }
-                    channel.force( false );
+                    channel.force( true );
                 }
                 else
                 {
