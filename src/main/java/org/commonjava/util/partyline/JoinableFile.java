@@ -648,7 +648,7 @@ public final class JoinableFile
                 long end = flushed - read > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read;
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
-                logger.trace( "Buffering {} - {} (size is: {})\n", read, read+end, channel.size() );
+                logger.trace( "Buffering {} - {} (size is: {})\n", read, read+end, flushed );
 
                 buf = channel.map( MapMode.READ_ONLY, read,
                                    end );
