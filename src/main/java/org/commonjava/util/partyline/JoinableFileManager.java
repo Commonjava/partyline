@@ -344,24 +344,25 @@ public class JoinableFileManager
      */
     private void addToContext( String name, Closeable closeable )
     {
-        logger.debug( "Adding {} to closeable set in ThreadContext", name );
-
-        ThreadContext threadContext = ThreadContext.getContext( false );
-        if ( closeable != null && threadContext != null )
-        {
-            synchronized ( threadContext )
-            {
-                Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) threadContext.get( PARTYLINE_OPEN_FILES );
-                if ( open == null )
-                {
-                    open = new HashMap<>();
-                    threadContext.put( PARTYLINE_OPEN_FILES, open ); // FILE_CLEANUP will remove it
-                }
-                open.put( name, new WeakReference<>( closeable ) );
-
-                threadContext.registerFinalizer( FILE_CLEANUP );
-            }
-        }
+        // [jdcasey]: Disabling this to avoid stream-closing problems associated with threaded Indy execution.
+//        logger.debug( "Adding {} to closeable set in ThreadContext", name );
+//
+//        ThreadContext threadContext = ThreadContext.getContext( false );
+//        if ( closeable != null && threadContext != null )
+//        {
+//            synchronized ( threadContext )
+//            {
+//                Map<String, WeakReference<Closeable>> open = (Map<String, WeakReference<Closeable>>) threadContext.get( PARTYLINE_OPEN_FILES );
+//                if ( open == null )
+//                {
+//                    open = new HashMap<>();
+//                    threadContext.put( PARTYLINE_OPEN_FILES, open ); // FILE_CLEANUP will remove it
+//                }
+//                open.put( name, new WeakReference<>( closeable ) );
+//
+//                threadContext.registerFinalizer( FILE_CLEANUP );
+//            }
+//        }
     }
 
     /**
