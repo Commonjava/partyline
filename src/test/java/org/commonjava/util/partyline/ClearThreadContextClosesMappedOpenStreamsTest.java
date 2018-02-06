@@ -17,6 +17,7 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.commonjava.cdi.util.weft.ThreadContext;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.Closeable;
@@ -35,6 +36,7 @@ public class ClearThreadContextClosesMappedOpenStreamsTest
 {
 
     @Test
+    @Ignore
     public void run() throws Exception
     {
         final JoinableFileManager manager = new JoinableFileManager();

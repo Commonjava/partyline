@@ -20,6 +20,7 @@ import org.commonjava.cdi.util.weft.ThreadContext;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
 import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -49,6 +50,7 @@ public class CleanupThreadIOExceptionHandleTest
     @BMRule( name = "cleanupThreadIOExceptionHandleTest", targetClass = "java.io.OutputStream", targetMethod = "close", targetLocation = "ENTRY", action = "throw new java.io.IOException()" )
     @Test
     @BMUnitConfig( debug = true )
+    @Ignore
     public void run() throws Exception
     {
         final JoinableFileManager manager = new JoinableFileManager();
