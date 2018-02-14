@@ -223,7 +223,7 @@ public class JoinableFileManager
                 owner.append( " (JoinableFile locked as READ)" );
             }
 
-            active.put( new File( jf.getPath() ), owner );
+            active.put( new File( jf.getPath() ), jf.reportOwnership() );
         } );
 
         return active;

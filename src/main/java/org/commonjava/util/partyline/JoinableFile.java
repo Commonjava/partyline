@@ -77,7 +77,7 @@ public final class JoinableFile
 
     private final StreamCallbacks callbacks;
 
-    private boolean closed = false;
+    private volatile boolean closed = false;
 
     private volatile boolean joinable = true;
 
@@ -424,12 +424,41 @@ public final class JoinableFile
         return !closed || !inputs.isEmpty();
     }
 
+    public String reportOwnership()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append( "Path: " ).append( path );
+
+        sb.append( "\n" )
+          .append( owner.isLocked() ? "LOCKED (" : "UNLOCKED (" )
+          .append( isWriteLocked() ? "write)" : "read)" );
+
+        sb.append( "\nStreams:" );
+        if ( output != null )
+        {
+            sb.append( "\n\t- " ).append( output.reportWithOwner() );
+        }
+
+        inputs.forEach( (hashCode, instance)->{
+            sb.append( "\n\t- " ).append( instance.reportWithOwner() );
+        } );
+
+        return sb.toString();
+    }
+
     private final class JoinableOutputStream
             extends OutputStream
     {
         private boolean closed;
 
         private ByteBuffer buf = ByteBuffer.allocateDirect( CHUNK_SIZE );
+
+        private String originalThreadName = Thread.currentThread().getName();
+
+        public String reportWithOwner()
+        {
+            return String.format( "output (%s)", originalThreadName );
+        }
 
         /**
          * If the stream is marked as closed, throw {@link IOException}. If the INTERNAL buffer is full, call {@link #flush()}. Then, write the byte to
@@ -439,8 +468,8 @@ public final class JoinableFile
         public void write( final int b )
                 throws IOException
         {
-            synchronized ( JoinableFile.this )
-            {
+//            synchronized ( JoinableFile.this )
+//            {
                 if ( closed )
                 {
                     throw new IOException( "Cannot write to closed stream!" );
@@ -452,7 +481,7 @@ public final class JoinableFile
                 }
 
                 buf.put( (byte) ( b & 0xff ) );
-            }
+//            }
         }
 
         /**
@@ -469,28 +498,32 @@ public final class JoinableFile
                 {
                     throw new IOException( "Cannot write to closed stream!" );
                 }
+            }
 
-                buf.flip();
-                int count = 0;
-                if ( channel != null )
+            buf.flip();
+            int count = 0;
+            if ( channel != null )
+            {
+                while ( buf.hasRemaining() )
                 {
-                    while ( buf.hasRemaining() )
-                    {
-                        count += channel.write( buf );
-                    }
-                    channel.force( true );
+                    count += channel.write( buf );
                 }
-                else
-                {
-                    throw new IllegalStateException(
-                            "File channel is null, is the file descriptor " + path + " a directory?" );
-                }
+                channel.force( true );
+            }
+            else
+            {
+                throw new IllegalStateException(
+                        "File channel is null, is the file descriptor " + path + " a directory?" );
+            }
 
-                buf.clear();
+            buf.clear();
 
-                super.flush();
+            super.flush();
 
-                flushed += count;
+            flushed += count;
+
+            synchronized ( JoinableFile.this )
+            {
                 JoinableFile.this.notifyAll();
             }
 
@@ -510,18 +543,18 @@ public final class JoinableFile
                 throws IOException
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
-            logger.trace( "OUT :: close() called" );
-            synchronized ( JoinableFile.this )
+            logger.trace( "OUT ({}):: close() called", originalThreadName );
+
+            if ( closed )
             {
-                if ( closed )
-                {
-                    logger.trace( "OUT :: already closed" );
-                    return;
-                }
-                flush();
-                super.close();
-                closed = true;
+                logger.trace( "OUT ({}):: already closed", originalThreadName );
+                return;
             }
+
+            flush();
+            closed = true;
+            super.close();
+
             JoinableFile.this.close();
         }
 
@@ -614,7 +647,7 @@ public final class JoinableFile
             {
                 if ( closed )
                 {
-                    throw new IOException( "Joint: " + jointIdx + ": Cannot read from closed stream!" );
+                    throw new IOException( "Joint: " + jointIdx + "(" + originalThreadName + "): Cannot read from closed stream!" );
                 }
 
                 //                Logger logger = LoggerFactory.getLogger( getClass() );
@@ -678,23 +711,27 @@ public final class JoinableFile
                 throws IOException
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
-            logger.trace( "Joint: {} close() called.", jointIdx );
-            synchronized ( JoinableFile.this )
+            logger.trace( "Joint: {} ({}) close() called.", jointIdx, originalThreadName );
+            if ( closed )
             {
-                if ( closed )
-                {
-                    logger.trace( "Joint: {} already closed.", jointIdx );
-                    return;
-                }
-                closed = true;
-                super.close();
+                logger.trace( "Joint: {} ({}) already closed.", jointIdx, originalThreadName );
+                return;
             }
+
+            closed = true;
+            super.close();
+
             jointClosed( this, originalThreadName );
         }
 
         int getJointIndex()
         {
             return jointIdx;
+        }
+
+        public String reportWithOwner()
+        {
+            return String.format( "input-%s (%s)", jointIdx, originalThreadName );
         }
     }
 
