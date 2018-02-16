@@ -152,9 +152,10 @@ final class FileTree
      * (Manually) unlock a file for a given ownership label. The label allows the system to avoid unlocking for other
      * active threads that might still be using the file.
      * @param f The file to unlock
+     * @param label The label for the lock to remove
      * @return true if the file has no remaining locks after unlocking for this owner; false otherwise
      */
-    boolean unlock( File f )
+    boolean unlock( File f, final String label )
     {
         try
         {
@@ -164,13 +165,13 @@ final class FileTree
                 if ( entry != null )
                 {
                     logger.trace( "Unlocking {} (owner: {})", f, ownerName );
-                    if ( entry.lock.unlock() )
+                    if ( entry.lock.unlock( label ) )
                     {
                         logger.trace( "Unlocked; clearing resources associated with lock" );
 
                         closeEntryFile( entry, ownerName );
 
-                        if ( !unlockAssociatedEntries( entry, opLock ) )
+                        if ( !unlockAssociatedEntries( entry, label ) )
                         {
                             return false;
                         }
@@ -210,7 +211,7 @@ final class FileTree
         return false;
     }
 
-    private boolean unlockAssociatedEntries( final FileEntry entry, final FileOperationLock opLock )
+    private boolean unlockAssociatedEntries( final FileEntry entry, final String label )
     {
         // the 'alsoLocked' entry field constitutes a linked list of locked entries.
         // When we unlock the topmost one, we need to unlock the ones that are linked too.
@@ -218,7 +219,7 @@ final class FileTree
         while ( alsoLocked != null )
         {
             logger.trace( "ALSO Unlocking: {}", alsoLocked.name );
-            alsoLocked.lock.unlock();
+            alsoLocked.lock.unlock( label );
 //
 //            {
 //                // FIXME: This is probably a little bit wrong, but in practice it should never fail.
@@ -254,7 +255,7 @@ final class FileTree
      *
      * @param f The file whose locks should be cleared
      */
-    private void clearLocks( File f )
+    private void clearLocks( final File f, final String label )
     {
         try
         {
@@ -268,7 +269,7 @@ final class FileTree
 
                     closeEntryFile( entry, "" );
 
-                    unlockAssociatedEntries( entry, opLock );
+                    unlockAssociatedEntries( entry, label );
 
                     entryMap.remove( entry.name );
 
@@ -400,7 +401,7 @@ final class FileTree
                                 catch ( IOException | RuntimeException e )
                                 {
                                     // we just locked this, and the call failed...reverse the lock operation.
-                                    entry.lock.unlock();
+                                    entry.lock.unlock( label );
                                     throw e;
                                 }
                             }
@@ -411,11 +412,13 @@ final class FileTree
                         }
                         else if ( name.startsWith( entry.name ) )
                         {
+                            logger.trace( "Re-locking the locking entry: {}.", entry.name );
                             entry.lock.lock( label, lockLevel );
 
                             FileEntry alsoLocked = entry.alsoLocked;
                             while ( alsoLocked != null )
                             {
+                                logger.trace( "ALSO re-locking: {}", alsoLocked.name );
                                 alsoLocked.lock.lock( label, read );
                                 alsoLocked = alsoLocked.alsoLocked;
                             }
@@ -435,7 +438,7 @@ final class FileTree
                         }
 
                         entry = new FileEntry( name, label, lockLevel, entry );
-                        logger.trace( "No lock; locking as: {} from: {}", lockLevel, label );
+                        logger.trace( "No lock on {}; locking as: {} from: {} with also-locked: {}", name, lockLevel, label, entry.name );
                         entryMap.put( name, entry );
                         try
                         {
@@ -445,7 +448,7 @@ final class FileTree
                         {
                             // we just locked this, and the call failed...reverse the lock operation.
                             // NOTE: This will CLEAR all locks, which is what we want since there was no FileEntry before.
-                            clearLocks( f );
+                            clearLocks( f, label );
                             throw e;
                         }
                     }
@@ -465,7 +468,7 @@ final class FileTree
                 if ( entry != null && entry.lock.getLockLevel() == LockLevel.delete && entry.lock.isLocked() )
                 {
                     logger.trace( "Clearing locks on delete-locked file entry: {}", f );
-                    clearLocks( f );
+                    clearLocks( f, label );
                 }
             }
 
@@ -501,9 +504,10 @@ final class FileTree
     {
         long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
 
+        String label = JoinableFile.labelFor( doOutput, Thread.currentThread().getName() );
         while ( end < 1 || System.currentTimeMillis() < end )
         {
-            T result = tryLock( realFile, "Open File for " + ( doOutput ? "output" : "input" ),
+            T result = tryLock( realFile, label,
                                            doOutput ? LockLevel.write : read, timeout, unit, ( opLock ) -> {
                         FileEntry entry = entryMap.get( realFile.getAbsolutePath() );
                         boolean proceed = false;
@@ -521,7 +525,7 @@ final class FileTree
                                 logger.trace( "File open but in process of closing; not joinable. Will wait..." );
 
                                 // undo the lock we just placed on this entry, to allow it to clear...
-                                entry.lock.unlock();
+                                entry.lock.unlock( label );
 
                                 opLock.signal();
 
@@ -541,7 +545,7 @@ final class FileTree
                             logger.trace( "No pre-existing open file; opening new JoinableFile under opLock: {}", opLock );
                             entry.file = new JoinableFile( realFile, entry.lock,
                                                            new FileTreeCallbacks( callbacks, entry,
-                                                                                  realFile ),
+                                                                                  realFile, label ),
                                                            doOutput, opLock );
 
                             proceed = true;
@@ -759,11 +763,14 @@ final class FileTree
 
         private FileEntry entry;
 
-        public FileTreeCallbacks( StreamCallbacks callbacks, FileEntry entry, File file )
+        private String label;
+
+        public FileTreeCallbacks( StreamCallbacks callbacks, FileEntry entry, File file, final String label )
         {
             this.callbacks = callbacks;
             this.file = file;
             this.entry = entry;
+            this.label = label;
         }
 
         @Override
@@ -798,7 +805,7 @@ final class FileTree
             entry.file = null;
 
             // the whole JoinableFile is closing. Clear remaining locks.
-            clearLocks( file );
+            clearLocks( file, label );
         }
     }
 

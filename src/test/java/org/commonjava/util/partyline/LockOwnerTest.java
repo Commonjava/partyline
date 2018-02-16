@@ -43,11 +43,12 @@ public class LockOwnerTest
     @Test
     public void lockClearAndLockAgainWithDifferentLevel()
     {
-        LockOwner owner = new LockOwner( "/path/to/nowhere", "testing", LockLevel.write );
+        String label = "testing";
+        LockOwner owner = new LockOwner( "/path/to/nowhere", label, LockLevel.write );
 
         assertThat( owner.isLockedByCurrentThread(), equalTo( true ) );
 
-        boolean unlocked = owner.unlock();
+        boolean unlocked = owner.unlock( label );
 
         assertThat( unlocked, equalTo( true ) );
         assertThat( owner.isLockedByCurrentThread(), equalTo( false ) );

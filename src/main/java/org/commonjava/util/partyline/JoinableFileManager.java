@@ -117,6 +117,8 @@ public class JoinableFileManager
         }
     };
 
+    private static final String MANUAL_LOCK_LABEL = "Manual lock";
+
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
     private final FileTree locks = new FileTree();
@@ -203,17 +205,6 @@ public class JoinableFileManager
         locks.forAll( ( jf ) -> {
             final StringBuilder owner = new StringBuilder();
 
-            final LockOwner ref = jf.getLockOwner();
-
-            if ( ref == null )
-            {
-                owner.append( "UNKNOWN OWNER; REF IS NULL." );
-            }
-            else
-            {
-                owner.append( ref.getLockInfo() );
-            }
-
             if ( jf.isWriteLocked() )
             {
                 owner.append( " (JoinableFile locked as WRITE)" );
@@ -221,6 +212,17 @@ public class JoinableFileManager
             else
             {
                 owner.append( " (JoinableFile locked as READ)" );
+            }
+
+            final LockOwner ref = jf.getLockOwner();
+
+            if ( ref == null )
+            {
+                owner.append( "\nUNKNOWN OWNER; REF IS NULL." );
+            }
+            else
+            {
+                owner.append('\n').append( ref.getLockInfo() );
             }
 
             active.put( new File( jf.getPath() ), jf.reportOwnership() );
@@ -384,7 +386,7 @@ public class JoinableFileManager
             throws InterruptedException
     {
         logger.trace( ">>>MANUAL LOCK: {}", file );
-        boolean result = locks.tryLock( file, "Manual lock", lockLevel, timeout, TimeUnit.MILLISECONDS );
+        boolean result = locks.tryLock( file, MANUAL_LOCK_LABEL, lockLevel, timeout, TimeUnit.MILLISECONDS );
         logger.trace( "<<<MANUAL LOCK (result: {})", result );
 
         return result;
@@ -406,7 +408,7 @@ public class JoinableFileManager
     public boolean unlock( final File file )
     {
         logger.trace( ">>>MANUAL UNLOCK: {} by: {}", file, getLockReservationName() );
-        boolean result = locks.unlock( file );
+        boolean result = locks.unlock( file, MANUAL_LOCK_LABEL );
 
         if ( result )
         {
@@ -586,10 +588,12 @@ public class JoinableFileManager
             sb.append( "\n\nThe following file locks are still active:" );
             for ( final File file : activeLocks.keySet() )
             {
-                sb.append( "\n" ).append( file ).append( " is owned by " ).append( activeLocks.get( file ) );
+                sb.append( "\n" )
+                  .append( file )
+                  .append( "\n-------------------------------\n" )
+                  .append( activeLocks.get( file ) )
+                  .append( "\n\n" );
             }
-
-            sb.append( "\n\n" );
 
             logger.info( sb.toString() );
         }

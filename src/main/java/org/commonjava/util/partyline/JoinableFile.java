@@ -279,7 +279,7 @@ public final class JoinableFile
                 logger.trace( "joint count is: {}.", inputs.size() );
                 if ( channel == null || inputs.isEmpty() )
                 {
-                    logger.trace( "Joints closed, really closing..." );
+                    logger.trace( "Joints closed, and output is closed...really closing." );
                     reallyClose();
                     owner.clearLocks();
                 }
@@ -392,13 +392,14 @@ public final class JoinableFile
                 {
                     if ( output == null || output.isClosed() )
                     {
+                        logger.trace( "All input joint closed, and output is missing or closed. Really closing." );
                         closed = true;
                         reallyClose();
                     }
                 }
                 else
                 {
-                    owner.unlock();
+                    owner.unlock( labelFor( false, originalThreadName ) );
 //                    owner.unlock( originalThreadName );
                 }
 
@@ -443,6 +444,11 @@ public final class JoinableFile
         inputs.forEach( (hashCode, instance)-> sb.append( "\n\t- " ).append( instance.reportWithOwner() ) );
 
         return sb.toString();
+    }
+
+    public static String labelFor( final boolean doOutput, String threadName )
+    {
+        return (doOutput ? "WRITE via " : "READ via ") + threadName;
     }
 
     private final class JoinableOutputStream

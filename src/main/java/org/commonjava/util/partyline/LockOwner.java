@@ -19,10 +19,16 @@ import org.commonjava.cdi.util.weft.ThreadContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static org.apache.commons.lang.StringUtils.join;
 
@@ -119,10 +125,15 @@ final class LockOwner
 
     synchronized CharSequence getLockInfo()
     {
-        return new StringBuilder().append( "Lock level: " )
+        StringBuilder sb = new StringBuilder().append( "Lock level: " )
                                   .append( dominantLockLevel )
-                                  .append( "\nOwner context is: " )
-                                  .append( locks.entrySet() );
+                                  .append( "\nLocks: " );
+        locks.values().forEach( ( v ) -> {
+            sb.append(v.ownerName).append(":\n  ");
+            v.locks.forEach( ( label ) -> sb.append( label ).append( '\n' ) );
+        } );
+
+        return sb;
     }
 
     private synchronized int increment( String label, LockLevel level )
@@ -130,13 +141,14 @@ final class LockOwner
         String ownerName = getLockReservationName();
         LockOwnerInfo lockOwnerInfo = locks.computeIfAbsent( ownerName, o->new LockOwnerInfo( level ) );
 
-        int lockCount = lockOwnerInfo.locks.incrementAndGet();
+        lockOwnerInfo.locks.add( label );
+        int lockCount = lockOwnerInfo.locks.size();
 
         logger.trace( "\n\n\n{}\n  Incremented lock count.\n  New count is: {} \n  Owner: {}\n  Ref: {}\n\n\n", path, lockCount, ownerName, label );
         return lockCount;
     }
 
-    synchronized boolean unlock()
+    synchronized boolean unlock( final String label )
     {
         String ownerName = getLockReservationName();
         LockOwnerInfo lockOwnerInfo = locks.get( ownerName );
@@ -146,7 +158,8 @@ final class LockOwner
             return false;
         }
 
-        int count = lockOwnerInfo.locks.decrementAndGet();
+        lockOwnerInfo.locks.remove( label );
+        int count = lockOwnerInfo.locks.size();
         logger.trace( "Decremented lock count.\n  Path: {}\n  for owner: {}\n  New count is: {}\nLock Info:\n{}", this.path, ownerName, count, getLockInfo() );
 
         if ( count < 1 )
@@ -195,7 +208,7 @@ final class LockOwner
         String ownerName = getLockReservationName();
         LockOwnerInfo lockOwnerInfo = locks.get( ownerName );
 
-        return lockOwnerInfo == null ? 0 : lockOwnerInfo.locks.get();
+        return lockOwnerInfo == null ? 0 : lockOwnerInfo.locks.size();
     }
 
     synchronized void clearLocks()
@@ -211,7 +224,7 @@ final class LockOwner
         String ownerName = (String) ctx.get( PARTYLINE_LOCK_OWNER );
         if ( ownerName == null )
         {
-            ownerName = "Threads sharing context with: " + Thread.currentThread().getName();
+            ownerName = "Context of: " + Thread.currentThread().getName();
             ctx.put( PARTYLINE_LOCK_OWNER, ownerName );
         }
 
@@ -221,7 +234,8 @@ final class LockOwner
     private static final class LockOwnerInfo
     {
         private String ownerName = getLockReservationName();
-        private AtomicInteger locks = new AtomicInteger( 0 );
+
+        private List<String> locks = Collections.synchronizedList( new ArrayList<>() );
         private LockLevel level;
 
         LockOwnerInfo( LockLevel level )
