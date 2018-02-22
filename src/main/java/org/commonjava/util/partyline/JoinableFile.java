@@ -33,6 +33,7 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
@@ -69,7 +70,7 @@ public final class JoinableFile
 
     private final Map<Integer, JoinInputStream> inputs = new HashMap<>();
 
-    private volatile long flushed = 0;
+    private AtomicLong flushed = new AtomicLong( 0 );
 
     private final String path;
 
@@ -147,7 +148,7 @@ public final class JoinableFile
                 logger.trace( "INIT: read-only JoinableFile: {}", target );
                 output = null;
                 logger.trace( "INIT: set flushed length to: {}", target.length() );
-                flushed = target.length();
+                flushed.set( target.length() );
                 randomAccessFile = new RandomAccessFile( target, "r" );
                 channel = randomAccessFile.getChannel();
 //                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
@@ -321,7 +322,7 @@ public final class JoinableFile
                 if ( output != null )
                 {
                     logger.trace( "Setting length of: {} to written length: {}", path, flushed );
-                    randomAccessFile.setLength( flushed );
+                    randomAccessFile.setLength( flushed.get() );
                     /* channel.force() is not enough to force system cached data to be written to underlying
                          device if the file does not reside on a local device (like NFS) */
                     randomAccessFile.getFD().sync();
@@ -439,9 +440,7 @@ public final class JoinableFile
             sb.append( "\n\t- " ).append( output.reportWithOwner() );
         }
 
-        inputs.forEach( (hashCode, instance)->{
-            sb.append( "\n\t- " ).append( instance.reportWithOwner() );
-        } );
+        inputs.forEach( (hashCode, instance)-> sb.append( "\n\t- " ).append( instance.reportWithOwner() ) );
 
         return sb.toString();
     }
@@ -520,7 +519,7 @@ public final class JoinableFile
 
             super.flush();
 
-            flushed += count;
+            flushed.addAndGet( count );
 
             synchronized ( JoinableFile.this )
             {
@@ -592,7 +591,7 @@ public final class JoinableFile
                 throws IOException
         {
             this.jointIdx = jointIdx;
-            buf = channel.map( MapMode.READ_ONLY, 0, flushed > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed );
+            buf = channel.map( MapMode.READ_ONLY, 0, flushed.get() > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed.get() );
             this.originalThreadName = Thread.currentThread().getName();
             this.ctorTime = System.nanoTime();
         }
@@ -652,7 +651,7 @@ public final class JoinableFile
 
                 //                Logger logger = LoggerFactory.getLogger( getClass() );
                 //                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
-                while ( read == flushed )
+                while ( read == flushed.get() )
                 {
                     if ( output == null || JoinableFile.this.closed )
                     {
@@ -678,7 +677,7 @@ public final class JoinableFile
             {
                 //                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
                 // map more content from the file, reading past our read-bytes count up to the number of flushed bytes from the parent stream
-                long end = flushed - read > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed - read;
+                long end = flushed.get() - read > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed.get() - read;
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 logger.trace( "Buffering {} - {} (size is: {})\n", read, read+end, flushed );
