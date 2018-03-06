@@ -176,7 +176,10 @@ final class FileTree
                             return false;
                         }
 
-                        entryMap.remove( entry.name );
+                        if ( !entry.lock.isLocked() )
+                        {
+                            entryMap.remove( entry.name );
+                        }
 
                         opLock.signal();
                         logger.trace( "Unlock succeeded." );

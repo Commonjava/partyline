@@ -202,31 +202,7 @@ public class JoinableFileManager
     {
         final Map<File, CharSequence> active = new HashMap<>();
 
-        locks.forAll( ( jf ) -> {
-            final StringBuilder owner = new StringBuilder();
-
-            if ( jf.isWriteLocked() )
-            {
-                owner.append( " (JoinableFile locked as WRITE)" );
-            }
-            else
-            {
-                owner.append( " (JoinableFile locked as READ)" );
-            }
-
-            final LockOwner ref = jf.getLockOwner();
-
-            if ( ref == null )
-            {
-                owner.append( "\nUNKNOWN OWNER; REF IS NULL." );
-            }
-            else
-            {
-                owner.append('\n').append( ref.getLockInfo() );
-            }
-
-            active.put( new File( jf.getPath() ), jf.reportOwnership() );
-        } );
+        locks.forAll( ( jf ) -> active.put( new File( jf.getPath() ), jf.reportOwnership() ));
 
         return active;
     }
