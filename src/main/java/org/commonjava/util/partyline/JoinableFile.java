@@ -33,6 +33,7 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -68,7 +69,7 @@ public final class JoinableFile
 
     private final JoinableOutputStream output;
 
-    private final Map<Integer, JoinInputStream> inputs = new HashMap<>();
+    private final Map<Integer, JoinInputStream> inputs = new ConcurrentHashMap<>();
 
     private AtomicLong flushed = new AtomicLong( 0 );
 
@@ -441,6 +442,11 @@ public final class JoinableFile
             sb.append( "\n\t- " ).append( output.reportWithOwner() );
         }
 
+        /*
+         * [JAVADOC] Iterators for ConcurrentHashMap return elements reflecting the state of the hash table at some point
+         * or since the creation of the iterator/enumeration. They do not throw ConcurrentModificationException.
+         * However, iterators are designed to be used by only one thread at a time.
+         */
         inputs.forEach( (hashCode, instance)-> sb.append( "\n\t- " ).append( instance.reportWithOwner() ) );
 
         return sb.toString();
