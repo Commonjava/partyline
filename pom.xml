@@ -1,6 +1,6 @@
 <!--
 
-    Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+    Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -40,8 +40,10 @@
   
   <properties>
     <weftVersion>1.6</weftVersion>
+    <infinispanVersion>8.2.4.Final</infinispanVersion>
 
     <projectOwner>Red Hat, Inc.</projectOwner>
+    <projectEmail>nos-devel@redhat.com</projectEmail>
     <javaVersion>1.8</javaVersion>
     <byteman.version>3.0.6</byteman.version>
     <test-forkCount>1</test-forkCount>
@@ -87,6 +89,16 @@
         <scope>test</scope>
         <version>${byteman.version}</version>
       </dependency>
+      <dependency>
+        <groupId>org.infinispan</groupId>
+        <artifactId>infinispan-commons</artifactId>
+        <version>${infinispanVersion}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.infinispan</groupId>
+        <artifactId>infinispan-core</artifactId>
+        <version>${infinispanVersion}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
   
@@ -131,6 +143,14 @@
       <groupId>org.commonjava.cdi.util</groupId>
       <artifactId>weft</artifactId>
     </dependency>
+      <dependency>
+        <groupId>org.infinispan</groupId>
+        <artifactId>infinispan-commons</artifactId>
+      </dependency>
+      <dependency>
+        <groupId>org.infinispan</groupId>
+        <artifactId>infinispan-core</artifactId>
+      </dependency>
   </dependencies>
   
   <build>

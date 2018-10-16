@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.commonjava.util.partyline;
+package org.commonjava.util.partyline.lock.local;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,7 +29,7 @@ import static org.apache.commons.lang.StringUtils.join;
  * Locks a single operation on a File in this FileTree, so competing operations ON THAT FILE have to wait, but
  * operations on other files can continue.
  */
-final class FileOperationLock
+public final class ReentrantOperationLock
 {
     private ReentrantLock lock = new ReentrantLock();
 

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,10 @@
 package org.commonjava.util.partyline;
 
 import org.commonjava.cdi.util.weft.ThreadContext;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.impl.local.RandomAccessJF;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,8 +41,8 @@ import java.util.function.Consumer;
 
 import static org.apache.commons.lang.StringUtils.join;
 
-import static org.commonjava.util.partyline.LockLevel.read;
-import static org.commonjava.util.partyline.LockOwner.getLockReservationName;
+import static org.commonjava.util.partyline.lock.LockLevel.read;
+import static org.commonjava.util.partyline.lock.local.LocalLockOwner.getLockReservationName;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -46,7 +50,7 @@ import static org.commonjava.util.partyline.LockOwner.getLockReservationName;
  *
  * @author jdcasey
  */
-public class JoinableFileManager
+public class Partyline
 {
 
     public static final String PARTYLINE_OPEN_FILES = "partyline-open-files";
@@ -64,7 +68,7 @@ public class JoinableFileManager
      * @since 1.9.5
      */
     private static final Consumer<ThreadContext> FILE_CLEANUP = (tc)->{
-        Logger logger = LoggerFactory.getLogger( JoinableFileManager.class );
+        Logger logger = LoggerFactory.getLogger( Partyline.class );
 
         Map<String, WeakReference<Closeable>> open =
                 (Map<String, WeakReference<Closeable>>) tc.remove( PARTYLINE_OPEN_FILES );
@@ -121,15 +125,21 @@ public class JoinableFileManager
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
-    private final FileTree locks = new FileTree();
+    private final FileTree locks;
 
     private final Timer timer;
 
     private ReportingTask reporter;
 
-    public JoinableFileManager()
+    public Partyline()
+    {
+        this( new RandomAccessJFS() );
+    }
+
+    public Partyline(JoinableFilesystem filesystem)
     {
         this.timer = new Timer( true );
+        this.locks = new FileTree( filesystem );
     }
 
     FileTree getFileTree()
@@ -208,7 +218,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to
+     * If the file isn't marked as active, create a new {@link RandomAccessJF} to the specified file and pass it back to
      * the user.
      */
     public OutputStream openOutputStream( final File file )
@@ -218,7 +228,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If the file isn't marked as active, create a new {@link JoinableFile} to the specified file and pass it back to
+     * If the file isn't marked as active, create a new {@link RandomAccessJF} to the specified file and pass it back to
      * the user. If the file is locked, wait for the specified milliseconds before giving up.
      */
     public OutputStream openOutputStream( final File file, final long timeout )
@@ -226,7 +236,7 @@ public class JoinableFileManager
     {
         logger.trace( ">>>OPEN OUTPUT: {} with timeout: {}", file, timeout );
 
-        OutputStream stream = locks.setOrJoinFile( file, null, true, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
+        OutputStream stream = locks.setOrJoinFile( file, true, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
             if ( result == null )
             {
                 throw new IOException( "Could not open output stream to: " + file + " in " + timeout + "ms." );
@@ -265,7 +275,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user.
+     * If there is an active {@link RandomAccessJF}, call {@link RandomAccessJF#joinStream()} and return it to the user.
      * Otherwise, open a new {@link FileInputStream} to the specified file and pass the result back to the user.
      */
     public InputStream openInputStream( final File file )
@@ -275,7 +285,7 @@ public class JoinableFileManager
     }
 
     /**
-     * If there is an active {@link JoinableFile}, call {@link JoinableFile#joinStream()} and return it to the user.
+     * If there is an active {@link RandomAccessJF}, call {@link RandomAccessJF#joinStream()} and return it to the user.
      * Otherwise, open a new {@link FileInputStream} to the specified file and pass the result back to the user. If the
      * file is locked for reads, wait for the specified milliseconds before giving up.
      */
@@ -284,7 +294,7 @@ public class JoinableFileManager
     {
         logger.trace( ">>>OPEN INPUT: {} with timeout: {}", file, timeout );
         AtomicReference<InterruptedException> interrupt = new AtomicReference<>();
-        InputStream stream = locks.setOrJoinFile( file, null, false, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
+        InputStream stream = locks.setOrJoinFile( file, false, timeout, TimeUnit.MILLISECONDS, ( result ) -> {
             if ( result == null )
             {
                 throw new IOException( "Could not open input stream to: " + file + " in " + timeout + "ms." );
@@ -491,7 +501,7 @@ public class JoinableFileManager
 
     /**
      * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false
-     * if the timeout elapses without the file becoming available for reads. If a {@link JoinableFile} is available for
+     * if the timeout elapses without the file becoming available for reads. If a {@link RandomAccessJF} is available for
      * the file, don't wait (immediately return true).
      *
      * @see #isReadLocked(File)
@@ -533,7 +543,7 @@ public class JoinableFileManager
 
     /**
      * Wait the specified timeout milliseconds for read access on the specified file to become available. Return false
-     * if the timeout elapses without the file becoming available for reads. If a {@link JoinableFile} is available for
+     * if the timeout elapses without the file becoming available for reads. If a {@link RandomAccessJF} is available for
      * the file, don't wait (immediately return true).
      *
      * @see #isReadLocked(File)
