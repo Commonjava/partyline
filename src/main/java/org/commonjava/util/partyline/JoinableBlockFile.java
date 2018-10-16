@@ -24,7 +24,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
@@ -35,6 +34,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.UUID;
+
 
 /**
  * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
@@ -58,12 +59,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * @author jdcasey
  */
-public final class JoinableFile
-        implements AutoCloseable, Closeable
+public final class JoinableBlockFile
+        implements AutoCloseable, Closeable, JoinableFileInterface
 {
     private static final int CHUNK_SIZE = 1024 * 1024; // 1mb
-
-    private final FileChannel channel;
 
 //    private final FileLock fileLock;
 
@@ -75,7 +74,15 @@ public final class JoinableFile
 
     private final String path;
 
-    private final RandomAccessFile randomAccessFile;
+    private final FileMeta blockFile;
+
+    private FileBlock prevBlock;
+
+    private FileBlock currBlock;
+
+    private final DefaultCacheManager fileCache;
+
+    private final DefaultCacheManager blockCache;
 
     private final StreamCallbacks callbacks;
 
@@ -96,7 +103,7 @@ public final class JoinableFile
      * Initialize the {@link JoinableOutputStream} and {@link ByteBuffer} that will buffer content before sending it on
      * to the channel (in the {@link JoinableOutputStream#flush()} method).
      */
-    JoinableFile( final File target, final LockOwner owner, boolean doOutput )
+    JoinableBlockFile( final File target, final LockOwner owner, boolean doOutput )
             throws IOException
     {
         this( target, owner, null, doOutput, new FileOperationLock() );
@@ -113,7 +120,7 @@ public final class JoinableFile
      * If callbacks are available, use these to signal to a manager instance when the stream is flushed and when
      * the last joined input stream (or this stream, if there are none) closes.
      */
-    JoinableFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput, FileOperationLock opLock )
+    JoinableBlockFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput, FileOperationLock opLock )
             throws IOException
     {
         this.owner = owner;
@@ -131,7 +138,7 @@ public final class JoinableFile
             {
                 logger.trace( "INIT: locking directory WITHOUT lock in underlying filesystem!" );
                 output = null;
-                randomAccessFile = null;
+                blockFile = null;
                 channel = null;
 //                fileLock = null;
                 joinable = false;
@@ -140,9 +147,7 @@ public final class JoinableFile
             {
                 logger.trace( "INIT: read-write JoinableFile: {}", target );
                 output = new JoinableOutputStream();
-                randomAccessFile = new RandomAccessFile( target, "rws" );
-                channel = randomAccessFile.getChannel();
-//                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
+                blockFile = new FileMeta( this.path, UUID.randomUUID() );
             }
             else
             {
@@ -150,9 +155,7 @@ public final class JoinableFile
                 output = null;
                 logger.trace( "INIT: set flushed length to: {}", target.length() );
                 flushed.set( target.length() );
-                randomAccessFile = new RandomAccessFile( target, "r" );
-                channel = randomAccessFile.getChannel();
-//                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
+                blockFile = new FileMeta( this.path, UUID.randomUUID() );
             }
         }
         catch ( OverlappingFileLockException e )
@@ -177,11 +180,6 @@ public final class JoinableFile
         return joinable;
     }
 
-    boolean isDirectory()
-    {
-        return channel == null;
-    }
-
     /**
      * Return an {@link InputStream} instance that reads from the same {@link RandomAccessFile} that backs this output stream, and is tuned to listen
      * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
@@ -193,10 +191,7 @@ public final class JoinableFile
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
-                throw new IOException( "JoinableFile is not accepting join() operations. (" +
-                                               ( channel == null ?
-                                                       "It's a locked directory" :
-                                                       "It's in the process of closing." ) + ")" );
+                throw new IOException( "JoinableFile is not accepting join() operations" );
             }
 
             JoinInputStream result = new JoinInputStream( inputs.size() );
@@ -241,15 +236,6 @@ public final class JoinableFile
     }
 
     /**
-     * Write locks happen when either a directory is locked, or the file was locked with doOutput == true.
-     */
-    boolean isWriteLocked()
-    {
-        // if the channel is null, this is a directory lock.
-        return channel == null || output != null;
-    }
-
-    /**
      * Mark this stream as closed. Don't close the underlying channel if
      * there are still open input streams...allow their close methods to trigger that if the ref count drops 
      * to 0.
@@ -278,7 +264,7 @@ public final class JoinableFile
                 }
 
                 logger.trace( "joint count is: {}.", inputs.size() );
-                if ( channel == null || inputs.isEmpty() )
+                if ( inputs.isEmpty() )
                 {
                     logger.trace( "Joints closed, and output is closed...really closing." );
                     reallyClose();
@@ -307,10 +293,6 @@ public final class JoinableFile
         try
         {
             lockAnd((lock)->{
-                if ( channel != null )
-                {
-                    channel.force( true );
-                }
 
                 if ( callbacks != null )
                 {
@@ -323,40 +305,10 @@ public final class JoinableFile
                 if ( output != null )
                 {
                     logger.trace( "Setting length of: {} to written length: {}", path, flushed );
-                    randomAccessFile.setLength( flushed.get() );
-                    /* channel.force() is not enough to force system cached data to be written to underlying
-                         device if the file does not reside on a local device (like NFS) */
-                    randomAccessFile.getFD().sync();
+                    // TODO: Work out what to do with blocks here
+                    /*randomAccessFile.setLength( flushed.get() );
+                    randomAccessFile.getFD().sync(); */
                 }
-
-                // if the channel is null, this is a directory lock.
-                if ( channel != null )
-                {
-                    logger.trace( "Closing underlying channel / random-access file..." );
-                    try
-                    {
-                        if ( channel.isOpen() )
-                        {
-//                            fileLock.release();
-                            channel.close();
-                        }
-                        else
-                        {
-                            logger.trace( "Channel was not open..." );
-                        }
-
-                        randomAccessFile.close();
-                    }
-                    catch ( ClosedChannelException e )
-                    {
-                        logger.debug( "Lock release failed on closed channel.", e );
-                    }
-                }
-                else
-                {
-                    logger.trace( "Channel already closed..." );
-                }
-
                 logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
                               Thread.currentThread().getName() );
 
@@ -432,6 +384,7 @@ public final class JoinableFile
         StringBuilder sb = new StringBuilder();
         sb.append( "Path: " ).append( path );
 
+        // TODO: implement isWriteLocked()
         sb.append( "\n" )
           .append( owner.isLocked() ? "LOCKED (" : "UNLOCKED (" )
           .append( isWriteLocked() ? "write)" : "read)" );
@@ -475,24 +428,41 @@ public final class JoinableFile
          * If the stream is marked as closed, throw {@link IOException}. If the INTERNAL buffer is full, call {@link #flush()}. Then, write the byte to
          * the buffer and increment the written-byte count.
          */
+
         @Override
-        public void write( final int b )
+        public void write ( final int b )
+        {
+            if ( (int) b == -1 )
+                {
+                    currBlock.setEOF();
+                    doFlush( true );
+                }
+                if ( !currBlock.full() )
+                {
+                    currBlock.writeToBuffer( (byte) b );
+                }
+                else
+                {
+                    UUID newBlockID = UUID.randomUUID();
+                    FileBlock block = new FileBlock( blockFile.getFileID(), newBlockID );
+                    currBlock.setNextBlockID( newBlockID );
+                    prevBlock = currBlock;
+                    currBlock = block;
+
+                    flush();
+
+                    currBlock.writeToBuffer ( (byte) b );
+                }
+        }
+
+        public void write( ByteBuffer buf )
                 throws IOException
         {
-//            synchronized ( JoinableFile.this )
-//            {
-                if ( closed )
-                {
-                    throw new IOException( "Cannot write to closed stream!" );
-                }
-
-                if ( buf.position() == buf.capacity() )
-                {
-                    flush();
-                }
-
-                buf.put( (byte) ( b & 0xff ) );
-//            }
+            while ( buf.hasRemaining() )
+            {
+                byte b = buf.get();
+                write( (int) b);
+            }
         }
 
         /**
@@ -503,7 +473,7 @@ public final class JoinableFile
         public void flush()
                 throws IOException
         {
-            synchronized ( JoinableFile.this )
+            synchronized ( JoinableBlockFile.this )
             {
                 if ( closed )
                 {
@@ -511,47 +481,12 @@ public final class JoinableFile
                 }
             }
 
-            buf.flip();
-            int count = 0;
-            if ( channel != null )
-            {
-                while ( buf.hasRemaining() )
-                {
-                    count += channel.write( buf );
-                }
-                channel.force( true );
-            }
-            else
-            {
-                throw new IllegalStateException(
-                        "File channel is null, is the file descriptor " + path + " a directory?" );
-            }
-
-            buf.clear();
-
-            super.flush();
-
-            flushed.addAndGet( count );
-
-            synchronized ( JoinableFile.this )
-            {
-                JoinableFile.this.notifyAll();
-            }
-
-            if ( callbacks != null )
-            {
-                callbacks.flushed();
-            }
+            doFlush( false );
         }
 
-        /**
-         * Flush anything in the current buffer. Mark this stream as closed. Don't close the underlying channel if
-         * there are still open input streams...allow their close methods to trigger that if the ref count drops
-         * to 0.
-         */
         @Override
         public void close()
-                throws IOException
+            throws IOException
         {
             Logger logger = LoggerFactory.getLogger( getClass() );
             logger.trace( "OUT ({}):: close() called", originalThreadName );
@@ -561,12 +496,33 @@ public final class JoinableFile
                 logger.trace( "OUT ({}):: already closed", originalThreadName );
                 return;
             }
-
-            flush();
-            closed = true;
+            doFlush( true );
             super.close();
 
-            JoinableFile.this.close();
+            JoinableBlockFile.this.close();
+        }
+
+        public void doFlush( boolean eof )
+            throws IOException
+        {
+            if ( eof )
+            {
+                blockCache.put( prevBlock.getBlockID(), prevBlock );
+                blockCache.put ( currblock.getBlockID, currBlock );
+                fileCache.put( fileMeta.getFileID(), fileMeta );
+            }
+            else
+            {
+                blockCache.put( prevBlock.getBlockID(), prevBlock );
+            }
+            synchronized ( JoinableBlockFile.this )
+            {
+                JoinableBlockFile.this.notifyAll();
+            }
+            if ( callbacks != null )
+            {
+                callbacks.flushed();
+            }
         }
 
         boolean isClosed() {
@@ -586,7 +542,7 @@ public final class JoinableFile
 
         private long read = 0;
 
-        private ByteBuffer buf;
+        private FileBlock block;
 
         private boolean closed = false;
 
@@ -603,7 +559,7 @@ public final class JoinableFile
                 throws IOException
         {
             this.jointIdx = jointIdx;
-            buf = channel.map( MapMode.READ_ONLY, 0, flushed.get() > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed.get() );
+            block = blockFile.getFirstBlock();
             this.originalThreadName = Thread.currentThread().getName();
             this.ctorTime = System.nanoTime();
         }
@@ -654,7 +610,7 @@ public final class JoinableFile
         public int read()
                 throws IOException
         {
-            synchronized ( JoinableFile.this )
+            synchronized ( JoinableBlockFile.this )
             {
                 if ( closed )
                 {
@@ -665,7 +621,7 @@ public final class JoinableFile
                 //                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
                 while ( read == flushed.get() )
                 {
-                    if ( output == null || JoinableFile.this.closed )
+                    if ( output == null || JoinableBlockFile.this.closed )
                     {
                         // if the parent stream is closed, return EOF
                         return -1;
@@ -673,7 +629,7 @@ public final class JoinableFile
 
                     try
                     {
-                        JoinableFile.this.wait( 100 );
+                        JoinableBlockFile.this.wait( 100 );
                     }
                     catch ( final InterruptedException e )
                     {
@@ -711,6 +667,21 @@ public final class JoinableFile
             //            logger.trace( "Joint: {} Read count: {}, returning: {}", jointIdx, read, Integer.toHexString( result ) );
             // byte is signed in java. Converting to unsigned:
             return result & 0xff;
+        }
+
+        @Override
+        public int read()
+                throws IOException
+        {
+            synchronized ( JoinableBlockFile.this )
+            {
+                if ( closed )
+                {
+                    throw new IOException( "Joint: " + jointIdx + "(" + originalThreadName + "): Cannot read from closed stream!" );
+                }
+            }
+
+            while ( read == )
         }
 
         /**
