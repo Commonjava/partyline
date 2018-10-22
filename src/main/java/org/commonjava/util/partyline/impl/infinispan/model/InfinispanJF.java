@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
+ * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,61 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.commonjava.util.partyline.impl.local;
+package org.commonjava.util.partyline.impl.infinispan.model;
 
-import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
-import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.lock.local.ReentrantOperation;
+import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
-import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.UUID;
 
-/**
- * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
- * management of the read and write locations. Writes go to an in-memory buffer (8kb as of this writing, see CHUNK_SIZE)
- * then get flushed to the channel. Reads will read from the channel until they get to the last flushed point of the
- * writer, then they read from the in-memory buffer. Finally, when readers have read all the way through the in-memory
- * buffer and catch up with the writer, they wait for new input to be added to the buffer.
- * <br/>
- * {@link JoinableFile} instances keep a reference count of readers + writer (if there is one), and will not completely
- * close until all associated reader/writer streams close. When it does close, it uses {@link FileTree}'s internal
- * FileTreeCallbacks instance (passed into the constructor) to close any remaining wayward locks and cleanup the associated
- * state.
- * <br/>
- * <b>NOTE:</b> If the first access initializing a {@link JoinableFile} is a read operation, the flushed byte count is
- * set to the length of the file, and the in-memory buffer isn't used.
- * <br/>
- * <b>NOTE 2:</b> If the file is a directory, this {@link JoinableFile} is instantiated as a dummy that doesn't allow
- * anything to read / write.
- * <br/>
- * <b>NOTE 3:</b> This implementation uses NIO {@link FileLock} to try to lock the underlying filesystem.
- *
- * @author jdcasey
- */
-public final class RandomAccessJF
-                implements JoinableFile
+public final class InfinispanJF
+                implements AutoCloseable, Closeable, JoinableFile
 {
     private static final int CHUNK_SIZE = 1024 * 1024; // 1mb
-
-    private final FileChannel channel;
-
-    //    private final FileLock fileLock;
 
     private final JoinableOutputStream output;
 
@@ -77,7 +50,13 @@ public final class RandomAccessJF
 
     private final String path;
 
-    private final RandomAccessFile randomAccessFile;
+    private final InfinispanJFS filesystem;
+
+    private final FileMeta metadata;
+
+    private FileBlock prevBlock;
+
+    private FileBlock currBlock;
 
     private final StreamCallbacks callbacks;
 
@@ -89,36 +68,12 @@ public final class RandomAccessJF
 
     private final ReentrantOperationLock opLock;
 
-    /**
-     * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
-     * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
-     * instances.
-     * <br/>
-     *
-     * Initialize the {@link JoinableOutputStream} and {@link ByteBuffer} that will buffer content before sending it on
-     * to the channel (in the {@link JoinableOutputStream#flush()} method).
-     */
-    RandomAccessJF( final File target, final LocalLockOwner owner, boolean doOutput ) throws IOException
-    {
-        this( target, owner, null, doOutput, new ReentrantOperationLock() );
-    }
-
-    /**
-     * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
-     * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
-     * instances.
-     * <br/>
-     * If writable, initialize the {@link JoinableOutputStream} and {@link ByteBuffer} that will buffer content before sending
-     * it on to the channel (in the {@link JoinableOutputStream#flush()} method).
-     * <br/>
-     * If callbacks are available, use these to signal to a manager instance when the stream is flushed and when
-     * the last joined input stream (or this stream, if there are none) closes.
-     */
-    RandomAccessJF( final File target, final LocalLockOwner owner, final StreamCallbacks callbacks, boolean doOutput,
-                    ReentrantOperationLock opLock ) throws IOException
+    InfinispanJF( final File target, final LocalLockOwner owner, final StreamCallbacks callbacks, boolean doOutput,
+                  ReentrantOperationLock opLock, InfinispanJFS filesystem ) throws IOException
     {
         this.owner = owner;
         this.path = target.getPath();
+        this.filesystem = filesystem;
         this.callbacks = callbacks;
         this.opLock = opLock;
 
@@ -128,12 +83,12 @@ public final class RandomAccessJF
         logger.trace( "Trying to initialize JoinableFile to: {} using operation lock:\n\n{}", target, opLock );
         try
         {
+            this.metadata = filesystem.getMetadata( target, owner );
+
             if ( target.isDirectory() )
             {
                 logger.trace( "INIT: locking directory WITHOUT lock in underlying filesystem!" );
                 output = null;
-                randomAccessFile = null;
-                channel = null;
                 //                fileLock = null;
                 joinable = false;
             }
@@ -141,9 +96,6 @@ public final class RandomAccessJF
             {
                 logger.trace( "INIT: read-write JoinableFile: {}", target );
                 output = new JoinableOutputStream();
-                randomAccessFile = new RandomAccessFile( target, "rws" );
-                channel = randomAccessFile.getChannel();
-                //                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
             }
             else
             {
@@ -151,9 +103,6 @@ public final class RandomAccessJF
                 output = null;
                 logger.trace( "INIT: set flushed length to: {}", target.length() );
                 flushed.set( target.length() );
-                randomAccessFile = new RandomAccessFile( target, "r" );
-                channel = randomAccessFile.getChannel();
-                //                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
             }
         }
         catch ( OverlappingFileLockException e )
@@ -163,20 +112,17 @@ public final class RandomAccessJF
         }
     }
 
-    @Override
     public LocalLockOwner getLockOwner()
     {
         return owner;
     }
 
     // only public for testing purposes...
-    @Override
     public OutputStream getOutputStream()
     {
         return output;
     }
 
-    @Override
     public boolean isJoinable()
     {
         return joinable;
@@ -185,23 +131,16 @@ public final class RandomAccessJF
     @Override
     public boolean isDirectory()
     {
-        return channel == null;
+        return metadata.isDirectory();
     }
 
-    /**
-     * Return an {@link InputStream} instance that reads from the same {@link RandomAccessFile} that backs this output stream, and is tuned to listen
-     * for notification that this stream is closed before signaling that it is out of content. The returned stream is of type {@link JoinInputStream}.
-     */
-    @Override
     public InputStream joinStream() throws IOException, InterruptedException
     {
         return lockAnd( ( lock ) -> {
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
-                throw new IOException( "JoinableFile is not accepting join() operations. (" + ( channel == null ?
-                                "It's a locked directory" :
-                                "It's in the process of closing." ) + ")" );
+                throw new IOException( "JoinableFile is not accepting join() operations" );
             }
 
             JoinInputStream result = new JoinInputStream( inputs.size() );
@@ -214,18 +153,12 @@ public final class RandomAccessJF
         } );
     }
 
-    /**
-     * Lock the {@link java.util.concurrent.locks.ReentrantLock} instance embedded in this {@link JoinableFile}, then
-     * execute the given operation. This prevents more than one thread from executing operations against state associated
-     * with the file this {@link JoinableFile} manages.
-     *
-     * @param op The operation to execute, once the operation lock is acquired
-     * @param <T> The result type of the given operation
-     * @return The result of operation execution
-     * @throws IOException
-     * @throws InterruptedException
-     *
-     */
+    @Override
+    public boolean isWriteLocked()
+    {
+        return metadata.isDirectory() || output != null;
+    }
+
     private <T> T lockAnd( ReentrantOperation<T> op ) throws IOException, InterruptedException
     {
         boolean locked = false;
@@ -244,18 +177,8 @@ public final class RandomAccessJF
     }
 
     /**
-     * Write locks happen when either a directory is locked, or the file was locked with doOutput == true.
-     */
-    @Override
-    public boolean isWriteLocked()
-    {
-        // if the channel is null, this is a directory lock.
-        return channel == null || output != null;
-    }
-
-    /**
      * Mark this stream as closed. Don't close the underlying channel if
-     * there are still open input streams...allow their close methods to trigger that if the ref count drops 
+     * there are still open input streams...allow their close methods to trigger that if the ref count drops
      * to 0.
      */
     @Override
@@ -281,7 +204,7 @@ public final class RandomAccessJF
                 }
 
                 logger.trace( "joint count is: {}.", inputs.size() );
-                if ( channel == null || inputs.isEmpty() )
+                if ( inputs.isEmpty() )
                 {
                     logger.trace( "Joints closed, and output is closed...really closing." );
                     reallyClose();
@@ -304,15 +227,11 @@ public final class RandomAccessJF
     private void reallyClose() throws IOException
     {
         Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.trace( "Really closing JoinableFile: {}", path );
+        logger.trace( "Really closing InfinispanJF: {}", path );
 
         try
         {
             lockAnd( ( lock ) -> {
-                if ( channel != null )
-                {
-                    channel.force( true );
-                }
 
                 if ( callbacks != null )
                 {
@@ -325,41 +244,10 @@ public final class RandomAccessJF
                 if ( output != null )
                 {
                     logger.trace( "Setting length of: {} to written length: {}", path, flushed );
-                    randomAccessFile.setLength( flushed.get() );
-                    /* channel.force() is not enough to force system cached data to be written to underlying
-                         device if the file does not reside on a local device (like NFS) */
-                    randomAccessFile.getFD().sync();
-                }
+                    filesystem.close( metadata );
 
-                // if the channel is null, this is a directory lock.
-                if ( channel != null )
-                {
-                    logger.trace( "Closing underlying channel / random-access file..." );
-                    try
-                    {
-                        if ( channel.isOpen() )
-                        {
-                            //                            fileLock.release();
-                            channel.close();
-                        }
-                        else
-                        {
-                            logger.trace( "Channel was not open..." );
-                        }
-
-                        randomAccessFile.close();
-                    }
-                    catch ( ClosedChannelException e )
-                    {
-                        logger.debug( "Lock release failed on closed channel.", e );
-                    }
                 }
-                else
-                {
-                    logger.trace( "Channel already closed..." );
-                }
-
-                logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
+                logger.trace( "InfinispanJF for: {} is really closed (by thread: {}).", path,
                               Thread.currentThread().getName() );
 
                 if ( callbacks != null )
@@ -401,7 +289,7 @@ public final class RandomAccessJF
                 }
                 else
                 {
-                    owner.unlock( JoinableFile.labelFor( false, originalThreadName ) );
+                    owner.unlock( labelFor( false, originalThreadName ) );
                     //                    owner.unlock( originalThreadName );
                 }
 
@@ -418,19 +306,16 @@ public final class RandomAccessJF
     /**
      * Retrieve the path that is managed in this instance.
      */
-    @Override
     public String getPath()
     {
         return path;
     }
 
-    @Override
     public boolean isOpen()
     {
         return !closed || !inputs.isEmpty();
     }
 
-    @Override
     public String reportOwnership()
     {
         StringBuilder sb = new StringBuilder();
@@ -456,6 +341,11 @@ public final class RandomAccessJF
         return sb.toString();
     }
 
+    public static String labelFor( final boolean doOutput, String threadName )
+    {
+        return ( doOutput ? "WRITE via " : "READ via " ) + threadName;
+    }
+
     private final class JoinableOutputStream
                     extends OutputStream
     {
@@ -474,33 +364,47 @@ public final class RandomAccessJF
          * If the stream is marked as closed, throw {@link IOException}. If the INTERNAL buffer is full, call {@link #flush()}. Then, write the byte to
          * the buffer and increment the written-byte count.
          */
+
         @Override
         public void write( final int b ) throws IOException
         {
-            //            synchronized ( JoinableFile.this )
-            //            {
-            if ( closed )
+            if ( (int) b == -1 )
             {
-                throw new IOException( "Cannot write to closed stream!" );
+                currBlock.setEOF();
+                doFlush( true );
             }
 
-            if ( buf.position() == buf.capacity() )
+            if ( !currBlock.full() )
             {
+                currBlock.writeToBuffer( (byte) b );
+            }
+            else
+            {
+                UUID newBlockID = UUID.randomUUID();
+                FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID );
+                currBlock.setNextBlockID( newBlockID );
+                prevBlock = currBlock;
+                currBlock = block;
+
                 flush();
-            }
 
-            buf.put( (byte) ( b & 0xff ) );
-            //            }
+                currBlock.writeToBuffer( (byte) b );
+            }
         }
 
-        /**
-         * Empty the current buffer into the {@link FileChannel} and reinitialize it for filling. Increment the flushed-byte count, which is used as the
-         * read limit for associated {@link JoinInputStream}s. Notify anyone listening that there is new content via {@link JoinableFile#notifyAll()}.
-         */
+        public void write( ByteBuffer buf ) throws IOException
+        {
+            while ( buf.hasRemaining() )
+            {
+                byte b = buf.get();
+                write( (int) b );
+            }
+        }
+
         @Override
         public void flush() throws IOException
         {
-            synchronized ( RandomAccessJF.this )
+            synchronized ( InfinispanJF.this )
             {
                 if ( closed )
                 {
@@ -508,44 +412,9 @@ public final class RandomAccessJF
                 }
             }
 
-            buf.flip();
-            int count = 0;
-            if ( channel != null )
-            {
-                while ( buf.hasRemaining() )
-                {
-                    count += channel.write( buf );
-                }
-                channel.force( true );
-            }
-            else
-            {
-                throw new IllegalStateException(
-                                "File channel is null, is the file descriptor " + path + " a directory?" );
-            }
-
-            buf.clear();
-
-            super.flush();
-
-            flushed.addAndGet( count );
-
-            synchronized ( RandomAccessJF.this )
-            {
-                RandomAccessJF.this.notifyAll();
-            }
-
-            if ( callbacks != null )
-            {
-                callbacks.flushed();
-            }
+            doFlush( false );
         }
 
-        /**
-         * Flush anything in the current buffer. Mark this stream as closed. Don't close the underlying channel if
-         * there are still open input streams...allow their close methods to trigger that if the ref count drops
-         * to 0.
-         */
         @Override
         public void close() throws IOException
         {
@@ -557,12 +426,32 @@ public final class RandomAccessJF
                 logger.trace( "OUT ({}):: already closed", originalThreadName );
                 return;
             }
-
-            flush();
-            closed = true;
+            doFlush( true );
             super.close();
 
-            RandomAccessJF.this.close();
+            InfinispanJF.this.close();
+        }
+
+        public void doFlush( boolean eof ) throws IOException
+        {
+            if ( eof )
+            {
+                filesystem.pushNextBlock( prevBlock, currBlock, metadata );
+            }
+            else
+            {
+                filesystem.updateBlock( prevBlock );
+            }
+
+            synchronized ( InfinispanJF.this )
+            {
+                InfinispanJF.this.notifyAll();
+            }
+
+            if ( callbacks != null )
+            {
+                callbacks.flushed();
+            }
         }
 
         boolean isClosed()
@@ -583,7 +472,7 @@ public final class RandomAccessJF
 
         private long read = 0;
 
-        private ByteBuffer buf;
+        private FileBlock block;
 
         private boolean closed = false;
 
@@ -599,8 +488,7 @@ public final class RandomAccessJF
         JoinInputStream( int jointIdx ) throws IOException
         {
             this.jointIdx = jointIdx;
-            buf = channel.map( MapMode.READ_ONLY, 0,
-                               flushed.get() > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed.get() );
+            block = metadata.getFirstBlock();
             this.originalThreadName = Thread.currentThread().getName();
             this.ctorTime = System.nanoTime();
         }
@@ -641,16 +529,16 @@ public final class RandomAccessJF
 
         /**
          * If this stream is in the process of closing, throw {@link IOException}. While the read-bytes count in this
-         * stream equals the flushed-bytes count in the associated output stream, wait for new content. If the output stream closes while we're 
+         * stream equals the flushed-bytes count in the associated output stream, wait for new content. If the output stream closes while we're
          * waiting, return -1. If the thread is interrupted while we're waiting, return -1.
          *
-         * If the current mapped buffer has been completely read, map the next section of content from the file. Then read the next byte from the 
+         * If the current mapped buffer has been completely read, map the next section of content from the file. Then read the next byte from the
          * buffer, increment the read-bytes count, and return it.
          */
         @Override
         public int read() throws IOException
         {
-            synchronized ( RandomAccessJF.this )
+            synchronized ( InfinispanJF.this )
             {
                 if ( closed )
                 {
@@ -658,59 +546,37 @@ public final class RandomAccessJF
                                                            + "): Cannot read from closed stream!" );
                 }
 
-                //                Logger logger = LoggerFactory.getLogger( getClass() );
-                //                logger.trace( "Joint: {} READ: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
-                while ( read == flushed.get() )
-                {
-                    if ( output == null || RandomAccessJF.this.closed )
-                    {
-                        // if the parent stream is closed, return EOF
-                        return -1;
-                    }
-
-                    try
-                    {
-                        RandomAccessJF.this.wait( 100 );
-                    }
-                    catch ( final InterruptedException e )
-                    {
-                        // if we're interrupted, return EOF
-                        return -1;
-                    }
-
-                    //                    logger.trace( "Joint: {} READ2: read-bytes count: {}, flushed-bytes count: {}", jointIdx, read, flushed );
-                }
             }
-
-            if ( buf.position() == buf.limit() )
+            // Is it better to write getting logic into FileBlock rather than expose the whole buffer?
+            if ( block.getBuffer().position() == block.getBuffer().limit() )
             {
-                //                logger.trace( "Joint: {} READ: filling buffer from {} to {} bytes", jointIdx, read, (flushed-read) );
-                // map more content from the file, reading past our read-bytes count up to the number of flushed bytes from the parent stream
-                long end = flushed.get() - read > MAX_BUFFER_SIZE ? MAX_BUFFER_SIZE : flushed.get() - read;
+                try
+                {
+                    FileBlock next = filesystem.getNextBlock( block );
+                    block = next;
+                }
+                catch ( final InterruptedException e)
+                {
+                    return -1;
+                }
 
-                Logger logger = LoggerFactory.getLogger( getClass() );
-                logger.trace( "Buffering {} - {} (size is: {})\n", read, read + end, flushed );
-
-                buf = channel.map( MapMode.READ_ONLY, read, end );
             }
 
             // be extra careful...if the new buffer is empty, return EOF.
-            if ( buf.position() == buf.limit() )
+            if ( block.isEOF() )
             {
-                //                logger.trace( "Joint: {} READ: New buffer is empty! Return -1", jointIdx );
                 return -1;
             }
 
-            final int result = buf.get();
+            final int result = block.getBuffer().get();
             read++;
 
-            //            logger.trace( "Joint: {} Read count: {}, returning: {}", jointIdx, read, Integer.toHexString( result ) );
             // byte is signed in java. Converting to unsigned:
             return result & 0xff;
         }
 
         /**
-         * Mark this stream as closed to no further reads can proceed. Then, call {@link RandomAccessJF#jointClosed(JoinInputStream, String)} to notify the parent
+         * Mark this stream as closed to no further reads can proceed. Then, call {@link InfinispanJF#jointClosed(JoinInputStream, String)} to notify the parent
          * output stream to decrement its open-reader count and notify anyone waiting in case a close is in progress.
          */
         @Override

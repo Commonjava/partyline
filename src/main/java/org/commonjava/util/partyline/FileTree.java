@@ -74,7 +74,7 @@ final class FileTree
      */
     void forAll( Consumer<JoinableFile> fileConsumer )
     {
-        forAll( entry -> entry.file != null, entry->fileConsumer.accept( entry.file ) );
+        forAll( entry -> entry.file != null, entry -> fileConsumer.accept( entry.file ) );
     }
 
     /**
@@ -135,7 +135,8 @@ final class FileTree
         }
         else if ( !entry.name.equals( path ) )
         {
-            logger.trace( "Returning parent lock level lock due to parent lock (level: {})", entry.lock.getLockLevel() );
+            logger.trace( "Returning parent lock level lock due to parent lock (level: {})",
+                          entry.lock.getLockLevel() );
             return entry.lock.getLockLevel();
         }
         else
@@ -145,7 +146,8 @@ final class FileTree
         }
     }
 
-    int getContextLockCount( File file ){
+    int getContextLockCount( File file )
+    {
         FileEntry entry = getLockingEntry( file );
         if ( entry == null )
         {
@@ -173,7 +175,7 @@ final class FileTree
     {
         try
         {
-            return lockManager.reentrantSynchronous( f, ( opLock ) -> {
+            return lockManager.reentrantSynchronous( f.getAbsolutePath(), ( opLock ) -> {
                 String ownerName = getLockReservationName();
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
@@ -237,17 +239,17 @@ final class FileTree
         {
             logger.trace( "ALSO Unlocking: {}", alsoLocked.name );
             alsoLocked.lock.unlock( label );
-//
-//            {
-//                // FIXME: This is probably a little bit wrong, but in practice it should never fail.
-//                // I'm not sure how we should handle failure to decrement the lock count for this
-//                // ThreadContext. Should it cause the main unlock() method here to fail? Probably...
-//                logger.error( "FAILED to unlock associated entry for path: {}\n\nEntry: {}\n\n", alsoLocked, entry.name );
-//
-//                opLock.signal();
-//                logger.trace( "Unlock failed for: {}", entry.name );
-//                return false;
-//            }
+            //
+            //            {
+            //                // FIXME: This is probably a little bit wrong, but in practice it should never fail.
+            //                // I'm not sure how we should handle failure to decrement the lock count for this
+            //                // ThreadContext. Should it cause the main unlock() method here to fail? Probably...
+            //                logger.error( "FAILED to unlock associated entry for path: {}\n\nEntry: {}\n\n", alsoLocked, entry.name );
+            //
+            //                opLock.signal();
+            //                logger.trace( "Unlock failed for: {}", entry.name );
+            //                return false;
+            //            }
 
             if ( !alsoLocked.lock.isLocked() )
             {
@@ -276,7 +278,7 @@ final class FileTree
     {
         try
         {
-            lockManager.reentrantSynchronous( f, ( opLock ) -> {
+            lockManager.reentrantSynchronous( f.getAbsolutePath(), ( opLock ) -> {
                 FileEntry entry = entryMap.get( f.getAbsolutePath() );
                 if ( entry != null )
                 {
@@ -338,7 +340,7 @@ final class FileTree
      * @see LockLevel
      */
     boolean tryLock( File file, String label, LockLevel lockLevel, long timeout, TimeUnit unit )
-            throws InterruptedException
+                    throws InterruptedException
     {
         try
         {
@@ -375,10 +377,9 @@ final class FileTree
      * @see LockLevel
      */
     private <T> T tryLock( File f, String label, LockLevel lockLevel, long timeout, TimeUnit unit,
-                           ReentrantOperation<T> operation )
-            throws InterruptedException, IOException
+                           ReentrantOperation<T> operation ) throws InterruptedException, IOException
     {
-        return lockManager.reentrantSynchronous( f, ( opLock ) -> {
+        return lockManager.reentrantSynchronous( f.getAbsolutePath(), ( opLock ) -> {
             long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
 
             logger.trace( "{}: Trying to lock until: {}", System.currentTimeMillis(), end );
@@ -402,7 +403,7 @@ final class FileTree
                     3. Neither the target file nor its ancestry is locked. Set a flag to tell the system to lock the
                        target file and proceed.
                      */
-                    boolean doFileLock = (entry == null);
+                    boolean doFileLock = ( entry == null );
 
                     if ( !doFileLock )
                     {
@@ -455,7 +456,8 @@ final class FileTree
                         }
 
                         entry = new FileEntry( name, label, lockLevel, entry );
-                        logger.trace( "No lock on {}; locking as: {} from: {} with also-locked: {}", name, lockLevel, label, entry.name );
+                        logger.trace( "No lock on {}; locking as: {} from: {} with also-locked: {}", name, lockLevel,
+                                      label, entry.name );
                         entryMap.put( name, entry );
                         try
                         {
@@ -513,68 +515,69 @@ final class FileTree
      *
      * @see #tryLock(File, String, LockLevel, long, TimeUnit, ReentrantOperation)
      */
-    <T> T setOrJoinFile( File realFile, boolean doOutput, long timeout,
-                                TimeUnit unit, JoinFileOperation<T> function )
-            throws IOException, InterruptedException
+    <T> T setOrJoinFile( File realFile, boolean doOutput, long timeout, TimeUnit unit, JoinFileOperation<T> function )
+                    throws IOException, InterruptedException
     {
         long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
 
         String label = JoinableFile.labelFor( doOutput, Thread.currentThread().getName() );
         while ( end < 1 || System.currentTimeMillis() < end )
         {
-            T result = tryLock( realFile, label,
-                                           doOutput ? LockLevel.write : read, timeout, unit, ( opLock ) -> {
-                        String path = realFile.getAbsolutePath();
-                        FileEntry entry = entryMap.get( path );
-                        boolean proceed = false;
-                        if ( entry.file != null )
-                        {
-                            if ( doOutput )
-                            {
-                                throw new IOException( "File already opened for writing: " + realFile );
-                            }
-                            else if ( !entry.file.isJoinable() )
-                            {
-                                // If we're joining the file and the file is in the process of closing, we need to wait and
-                                // try again once the file has finished closing.
+            T result = tryLock( realFile, label, doOutput ? LockLevel.write : read, timeout, unit, ( opLock ) -> {
+                String path = realFile.getAbsolutePath();
+                FileEntry entry = entryMap.get( path );
+                boolean proceed = false;
+                if ( entry.file != null )
+                {
+                    if ( doOutput )
+                    {
+                        throw new IOException( "File already opened for writing: " + realFile );
+                    }
+                    else if ( !entry.file.isJoinable() )
+                    {
+                        // If we're joining the file and the file is in the process of closing, we need to wait and
+                        // try again once the file has finished closing.
 
-                                logger.trace( "File open but in process of closing; not joinable. Will wait..." );
+                        logger.trace( "File open but in process of closing; not joinable. Will wait..." );
 
-                                // undo the lock we just placed on this entry, to allow it to clear...
-                                entry.lock.unlock( label );
+                        // undo the lock we just placed on this entry, to allow it to clear...
+                        entry.lock.unlock( label );
 
-                                opLock.signal();
+                        opLock.signal();
 
-                                logger.trace( "Waiting for file to close at: {}", System.currentTimeMillis() );
-                                opLock.await( WAIT_TIMEOUT );
+                        logger.trace( "Waiting for file to close at: {}", System.currentTimeMillis() );
+                        opLock.await( WAIT_TIMEOUT );
 
-                                logger.trace( "Proceeding with lock attempt at: {} under opLock: {}", System.currentTimeMillis(), opLock );
-                            }
-                            else
-                            {
-                                logger.trace( "Got joinable file" );
-                                proceed = true;
-                            }
-                        }
-                        else
-                        {
-                            logger.trace( "No pre-existing open file; opening new JoinableFile under opLock: {}", opLock );
-                            entry.file = filesystem.getFile( realFile, entry.lock, new FileTreeCallbacks( entry, realFile, label ), doOutput, opLock );
-//                            entry.file = new RandomAccessJF( realFile, entry.lock,
-//                                                             new FileTreeCallbacks( callbacks, entry,
-//                                                                                  realFile, label ),
-//                                                             doOutput, opLock );
+                        logger.trace( "Proceeding with lock attempt at: {} under opLock: {}",
+                                      System.currentTimeMillis(), opLock );
+                    }
+                    else
+                    {
+                        logger.trace( "Got joinable file" );
+                        proceed = true;
+                    }
+                }
+                else
+                {
+                    logger.trace( "No pre-existing open file; opening new JoinableFile under opLock: {}", opLock );
+                    entry.file = filesystem.getFile( realFile, entry.lock,
+                                                     new FileTreeCallbacks( entry, realFile, label ), doOutput,
+                                                     opLock );
+                    //                            entry.file = new RandomAccessJF( realFile, entry.lock,
+                    //                                                             new FileTreeCallbacks( callbacks, entry,
+                    //                                                                                  realFile, label ),
+                    //                                                             doOutput, opLock );
 
-                            proceed = true;
-                        }
+                    proceed = true;
+                }
 
-                        if ( proceed )
-                        {
-                            return function.execute( entry.file );
-                        }
+                if ( proceed )
+                {
+                    return function.execute( entry.file );
+                }
 
-                        return null;
-                    } );
+                return null;
+            } );
 
             if ( result != null )
             {
@@ -599,8 +602,7 @@ final class FileTree
      *
      * @see #tryLock(File, String, LockLevel, long, TimeUnit, ReentrantOperation)
      */
-    boolean delete( File file, long timeout, TimeUnit unit )
-            throws InterruptedException, IOException
+    boolean delete( File file, long timeout, TimeUnit unit ) throws InterruptedException, IOException
     {
         return tryLock( file, "Delete File", LockLevel.delete, timeout, unit, ( opLock ) -> {
             FileEntry entry = entryMap.remove( file.getAbsolutePath() );
@@ -659,7 +661,7 @@ final class FileTree
         {
             String fp = file.getAbsolutePath();
             Optional<String> result =
-                    entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
+                            entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
             if ( result.isPresent() )
             {
                 logger.trace( "Child: {} is locked; returning child as locking entry", result.get() );
@@ -704,7 +706,7 @@ final class FileTree
      * and which takes care of clearing all locks on a file when the {@link JoinableFile} is finally closed.
      */
     private final class FileTreeCallbacks
-            implements StreamCallbacks
+                    implements StreamCallbacks
     {
         private File file;
 
@@ -756,7 +758,6 @@ final class FileTree
     @FunctionalInterface
     interface JoinFileOperation<T>
     {
-        T execute( JoinableFile file )
-                throws IOException;
+        T execute( JoinableFile file ) throws IOException;
     }
 }

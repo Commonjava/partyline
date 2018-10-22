@@ -16,6 +16,7 @@
 package org.commonjava.util.partyline.impl.infinispan.model;
 
 import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,10 +46,13 @@ public class FileMeta
 
     private Map<String, LockLevel> lockMap = new ConcurrentHashMap<>();
 
-    FileMeta( String path, boolean directory )
+    private LocalLockOwner lockOwner;
+
+    FileMeta( String path, boolean directory, LocalLockOwner owner )
     {
         this.directory = directory;
         this.filePath = path;
+        this.lockOwner = owner;
 
         this.createdDate = new Date();
         this.lastModifiedDate = (Date) this.createdDate.clone();
@@ -93,6 +97,11 @@ public class FileMeta
     FileBlock getFirstBlock()
     {
         return firstBlock;
+    }
+
+    LocalLockOwner getLockOwner()
+    {
+        return lockOwner;
     }
 
     public String getFilePath()

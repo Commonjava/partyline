@@ -95,6 +95,16 @@ public class FileBlock
         nextBlockID = blockID;
     }
 
+    public int readFromBuffer()
+    {
+        return data.get() & 0xff;
+    }
+
+    public ByteBuffer getBuffer()
+    {
+        return data;
+    }
+
     public String getFileID()
     {
         return fileID;
