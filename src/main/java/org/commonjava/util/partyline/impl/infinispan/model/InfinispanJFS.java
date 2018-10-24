@@ -1,5 +1,6 @@
 package org.commonjava.util.partyline.impl.infinispan.model;
 
+import com.sun.tools.javac.util.Context;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
@@ -7,9 +8,15 @@ import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.infinispan.Cache;
+import org.infinispan.notifications.Listener;
+import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
+import org.infinispan.notifications.cachelistener.event.CacheEntryEvent;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 public class InfinispanJFS
@@ -51,6 +58,18 @@ public class InfinispanJFS
         if ( nextBlock == null )
         {
             // setup a cache listener for this UUID, and wait in a timed loop for it to return
+            ClusterListener clusterListener = new ClusterListener( next );
+            clusterListener.listenToCache( blockCache );
+            // TODO: Figure out how to react to cache event
+            try
+            {
+                this.wait( 100 );
+            }
+            catch ( final InterruptedException e )
+            {
+                return null;
+            }
+
         }
 
         return nextBlock;
@@ -129,4 +148,35 @@ public class InfinispanJFS
             throw new IOException( "Thread interrupted while retrieving / creating file metadata : " + path, e );
         }
     }
+
+    @Listener
+    public class ClusterListener
+    {
+        List<CacheEntryEvent> events = Collections.synchronizedList( new ArrayList<CacheEntryEvent>() );
+
+        UUID key;
+
+        public ClusterListener( UUID key )
+        {
+            this.key = key;
+        }
+
+        @CacheEntryCreated
+        public void onCacheCreatedEvent( CacheEntryEvent event )
+        {
+            // Check to see if the new entry is the one we're listening for
+            if ( event.getKey() == this.key )
+            {
+                // TODO: Do something here to notify
+                return;
+            }
+            events.add( event );
+        }
+
+        public void listenToCache( Cache<?, ?> cache )
+        {
+            cache.addListener( this );
+        }
+    }
+
 }
