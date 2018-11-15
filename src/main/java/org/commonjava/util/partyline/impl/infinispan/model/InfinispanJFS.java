@@ -4,12 +4,14 @@ import com.sun.tools.javac.util.Context;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.infinispan.Cache;
 import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
+import org.infinispan.notifications.cachelistener.annotation.CacheEntryModified;
 import org.infinispan.notifications.cachelistener.event.CacheEntryEvent;
 
 import java.io.File;
@@ -23,6 +25,8 @@ public class InfinispanJFS
                 implements JoinableFilesystem
 {
     private final LocalLockManager lockManager = new LocalLockManager();
+
+    private static final long WAIT_TIMEOUT = 100;
 
     private String nodeKey;
 
@@ -51,28 +55,39 @@ public class InfinispanJFS
         return null;
     }
 
-    FileBlock getNextBlock( final FileBlock prevBlock ) throws InterruptedException
+    FileBlock getNextBlock( final FileBlock prevBlock, final FileMeta metadata) throws IOException
     {
-        UUID next = prevBlock.getNextBlockID();
-        FileBlock nextBlock = blockCache.get( next );
-        if ( nextBlock == null )
+        synchronized ( InfinispanJFS.this )
         {
-            // setup a cache listener for this UUID, and wait in a timed loop for it to return
-            ClusterListener clusterListener = new ClusterListener( next );
-            clusterListener.listenToCache( blockCache );
-            // TODO: Figure out how to react to cache event
-            try
+            // TODO: make sure next will exist
+            UUID next = prevBlock.getNextBlockID();
+            FileBlock nextBlock = null;
+            while ( nextBlock == null )
             {
-                this.wait( 100 );
-            }
-            catch ( final InterruptedException e )
-            {
-                return null;
+                nextBlock = blockCache.get( next );
+                if (nextBlock == null)
+                {
+                    try
+                    {
+                        lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
+                            // setup a cache listener for this UUID, and wait in a timed loop for it to return
+                            ClusterListener clusterListener = new ClusterListener( next, opLock );
+                            clusterListener.listenToCache( blockCache );
+                            opLock.await( WAIT_TIMEOUT );
+
+                            return null;
+                        } );
+                    }
+                    catch ( final InterruptedException e )
+                    {
+                        return null;
+                    }
+                }
+
             }
 
+            return nextBlock;
         }
-
-        return nextBlock;
     }
 
     void pushNextBlock( final FileBlock prevBlock, final FileBlock nextBlock, final FileMeta metadata )
@@ -155,10 +170,12 @@ public class InfinispanJFS
         List<CacheEntryEvent> events = Collections.synchronizedList( new ArrayList<CacheEntryEvent>() );
 
         UUID key;
+        ReentrantOperationLock lock;
 
-        public ClusterListener( UUID key )
+        public ClusterListener( UUID key, ReentrantOperationLock opLock )
         {
             this.key = key;
+            this.lock = opLock;
         }
 
         @CacheEntryCreated
@@ -168,9 +185,23 @@ public class InfinispanJFS
             if ( event.getKey() == this.key )
             {
                 // TODO: Do something here to notify
-                return;
+                this.lock.signal();
             }
             events.add( event );
+        }
+
+        @CacheEntryModified
+        public void onCacheEventModified( CacheEntryEvent event )
+        {
+            if ( event.getKey() == this.key )
+            {
+                // Check to see if updated block was marked EOF
+                FileBlock updatedBlock = (FileBlock) event.getValue();
+                if( updatedBlock.isEOF() )
+                {
+                    this.lock.signal();
+                }
+            }
         }
 
         public void listenToCache( Cache<?, ?> cache )

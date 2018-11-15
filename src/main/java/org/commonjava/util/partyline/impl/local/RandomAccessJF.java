@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * buffer and catch up with the writer, they wait for new input to be added to the buffer.
  * <br/>
  * {@link JoinableFile} instances keep a reference count of readers + writer (if there is one), and will not completely
- * close until all associated reader/writer streams close. When it does close, it uses {@link FileTree}'s internal
+ * close until all associated reader/writer streams close. When it does close, it uses FileTree's internal
  * FileTreeCallbacks instance (passed into the constructor) to close any remaining wayward locks and cleanup the associated
  * state.
  * <br/>

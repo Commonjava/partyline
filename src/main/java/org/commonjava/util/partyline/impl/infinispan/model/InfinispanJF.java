@@ -46,8 +46,6 @@ public final class InfinispanJF
 
     private final Map<Integer, JoinInputStream> inputs = new ConcurrentHashMap<>();
 
-    private AtomicLong flushed = new AtomicLong( 0 );
-
     private final String path;
 
     private final InfinispanJFS filesystem;
@@ -101,8 +99,6 @@ public final class InfinispanJF
             {
                 logger.trace( "INIT: read-only JoinableFile: {}", target );
                 output = null;
-                logger.trace( "INIT: set flushed length to: {}", target.length() );
-                flushed.set( target.length() );
             }
         }
         catch ( OverlappingFileLockException e )
@@ -243,7 +239,6 @@ public final class InfinispanJF
 
                 if ( output != null )
                 {
-                    logger.trace( "Setting length of: {} to written length: {}", path, flushed );
                     filesystem.close( metadata );
 
                 }
@@ -550,22 +545,27 @@ public final class InfinispanJF
             // Is it better to write getting logic into FileBlock rather than expose the whole buffer?
             if ( block.getBuffer().position() == block.getBuffer().limit() )
             {
+                // We're done reading the buffer - check for EOF
+                if ( block.isEOF() )
+                {
+                    return -1;
+                }
                 try
                 {
-                    FileBlock next = filesystem.getNextBlock( block );
+                    // Get the next block
+                    FileBlock next = filesystem.getNextBlock( block, metadata );
                     block = next;
+                    // getNextBlock can return null
+                    if ( block == null )
+                    {
+                        return -1;
+                    }
                 }
-                catch ( final InterruptedException e)
+                catch ( final IOException e )
                 {
                     return -1;
                 }
 
-            }
-
-            // be extra careful...if the new buffer is empty, return EOF.
-            if ( block.isEOF() )
-            {
-                return -1;
             }
 
             final int result = block.getBuffer().get();
