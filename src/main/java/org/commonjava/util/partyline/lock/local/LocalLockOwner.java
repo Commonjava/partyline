@@ -157,7 +157,7 @@ public final class LocalLockOwner
         if ( lockOwnerInfo == null )
         {
             logger.trace( "Not locked by: {}. Returning null.", ownerName );
-            return null;
+            return new UnlockStatus( false, false, null );
         }
 
         lockOwnerInfo.locks.remove( label );
@@ -181,17 +181,18 @@ public final class LocalLockOwner
                 {
                     LockOwnerInfo newDom = first.get();
                     this.dominantOwner = newDom.ownerName;
+                    // check to see if the dominant lock level actually changed
+                    boolean changed = ( this.dominantLockLevel != newDom.level );
                     this.dominantLockLevel = newDom.level;
                     logger.trace( "New dominant holder is: {} with level: {}", this.dominantOwner,
                                   this.dominantLockLevel );
-                    return new UnlockStatus( true, true, this.dominantLockLevel );
+                    return new UnlockStatus( true, changed, this.dominantLockLevel );
                 }
                 else
                 {
                     logger.trace( "Locks seems to be empty; Unlocking" );
                     this.dominantOwner = null;
                     this.dominantLockLevel = null;
-                    // TODO: how best to handle this case?
                     return new UnlockStatus( true, true, null );
                 }
             }

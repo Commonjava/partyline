@@ -1,8 +1,10 @@
 package org.commonjava.util.partyline.impl.infinispan.model;
 
 import com.sun.tools.javac.util.Context;
+import org.commonjava.util.partyline.PartylineException;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
@@ -14,6 +16,8 @@ import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryModified;
 import org.infinispan.notifications.cachelistener.event.CacheEntryEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.transaction.HeuristicMixedException;
 import javax.transaction.HeuristicRollbackException;
@@ -63,23 +67,53 @@ public class InfinispanJFS
     }
 
     @Override
-    public void updateDominantLocks( String path, LockLevel level )
-                    throws SystemException, NotSupportedException, HeuristicRollbackException, HeuristicMixedException,
-                    RollbackException
+    public void updateDominantLocks( String path, UnlockStatus unlockStatus ) throws PartylineException
     {
+        // Do nothing if dominance did not change
+        if ( !unlockStatus.isDominanceChanged() )
+        {
+            return;
+        }
         TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
-        transactionManager.begin();
-        FileMeta meta = metadataCache.get( path );
-        if ( level == null )
+        try
         {
-            meta.removeLock( this.nodeKey );
+            transactionManager.begin();
+            FileMeta meta = metadataCache.get( path );
+            if ( unlockStatus.getDominantLockLevel() == null )
+            {
+                meta.removeLock( this.nodeKey );
+            }
+            else
+            {
+                meta.addLock( this.nodeKey, unlockStatus.getDominantLockLevel() );
+            }
+            metadataCache.put( path, meta );
         }
-        else
+        catch ( NotSupportedException | SystemException e )
         {
-            meta.addLock( this.nodeKey, level );
+            try
+            {
+                transactionManager.rollback();
+                throw new PartylineException( "Failed to begin transaction. Rolling back. Path: " + path, e );
+            }
+            catch ( SystemException e1 )
+            {
+                LoggerFactory.getLogger( getClass().getName() )
+                             .error( "System Exception during transaction rollback involving path: " + path, e1 );
+            }
         }
-        metadataCache.put( path, meta );
-        transactionManager.commit();
+        finally
+        {
+            try
+            {
+                transactionManager.commit();
+            }
+            catch ( RollbackException | HeuristicMixedException | HeuristicRollbackException | SystemException e )
+            {
+                LoggerFactory.getLogger( getClass().getName() )
+                             .error( "Exception during transaction commit involving path: " + path, e );
+            }
+        }
     }
 
     FileBlock getNextBlock( final FileBlock prevBlock, final FileMeta metadata ) throws IOException
@@ -108,7 +142,8 @@ public class InfinispanJFS
         }
         catch ( InterruptedException e )
         {
-            e.printStackTrace();
+            LoggerFactory.getLogger( getClass().getName() )
+                         .error( "Interrupted while trying to get block with ID: " + next, e );
         }
         return null;
     }
@@ -139,7 +174,7 @@ public class InfinispanJFS
 
     void close( FileMeta metadata, LocalLockOwner owner ) throws IOException
     {
-
+        /*
         TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
         try
         {
@@ -170,7 +205,7 @@ public class InfinispanJFS
         catch ( InterruptedException e )
         {
             throw new IOException( "Thread interrupted while closing file: " + metadata.getFilePath(), e );
-        }
+        }*/
     }
 
     FileMeta getMetadata( final File target, final LocalLockOwner owner ) throws IOException
@@ -180,23 +215,58 @@ public class InfinispanJFS
         {
             return lockManager.reentrantSynchronous( path, ( opLock ) -> {
 
+                FileMeta meta = null;
                 TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
-                transactionManager.begin();
-                FileMeta meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory() ) );
-                // Check the current lock level
-                // TODO: Negotiate the lock level
-                LockLevel currentLockLevel = meta.getLockLevel( this.nodeKey );
 
-                meta.addLock( this.nodeKey, owner.getLockLevel() );
-                metadataCache.put( path, meta );
-                transactionManager.commit();
+                try
+                {
+                    transactionManager.begin();
 
+                    meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory() ) );
+
+                    LockLevel currentLockLevel = meta.getLockLevel( this.nodeKey );
+                    // Only update the cache if the lock level changed
+                    if ( currentLockLevel == null || currentLockLevel != owner.getLockLevel() )
+                    {
+                        meta.addLock( this.nodeKey, owner.getLockLevel() );
+                        metadataCache.put( path, meta );
+                    }
+
+                }
+                catch ( NotSupportedException | SystemException e )
+                {
+                    try
+                    {
+                        transactionManager.rollback();
+                        throw new PartylineException( "Failed to begin transaction. Rolling back. Path: " + path, e );
+                    }
+                    catch ( SystemException e1 )
+                    {
+                        LoggerFactory.getLogger( getClass().getName() )
+                                     .error( "System Exception during transaction rollback involving path: " + path, e1 );
+                    }
+                }
+
+                finally
+                {
+
+                    try
+                    {
+                        transactionManager.commit();
+                    }
+                    catch ( RollbackException | HeuristicMixedException | HeuristicRollbackException | SystemException e )
+                    {
+                        LoggerFactory.getLogger( getClass().getName() )
+                                     .error( "Exception during transaction commit involving path: " + path, e );
+                    }
+
+                }
                 return meta;
             } );
         }
         catch ( InterruptedException e )
         {
-            e.printStackTrace();
+            LoggerFactory.getLogger( getClass().getName() ).error( "Problem retrieving metadata for path: " + path, e );
         }
         return null;
     }

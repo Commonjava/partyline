@@ -15,6 +15,8 @@
  */
 package org.commonjava.util.partyline.lock.local;
 
+import org.commonjava.util.partyline.PartylineException;
+
 import javax.transaction.HeuristicMixedException;
 import javax.transaction.HeuristicRollbackException;
 import javax.transaction.NotSupportedException;
@@ -28,7 +30,5 @@ import java.io.IOException;
 @FunctionalInterface
 public interface ReentrantOperation<T>
 {
-    T execute( ReentrantOperationLock opLock )
-                    throws InterruptedException, IOException, SystemException, NotSupportedException,
-                    HeuristicRollbackException, HeuristicMixedException, RollbackException;
+    T execute( ReentrantOperationLock opLock ) throws IOException;
 }
