@@ -34,7 +34,6 @@ import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.UUID;
 
 public final class InfinispanJF
@@ -239,7 +238,7 @@ public final class InfinispanJF
 
                 if ( output != null )
                 {
-                    filesystem.close( metadata );
+                    filesystem.close( metadata, owner );
 
                 }
                 logger.trace( "InfinispanJF for: {} is really closed (by thread: {}).", path,
@@ -369,13 +368,9 @@ public final class InfinispanJF
                 doFlush( true );
             }
 
-            if ( !currBlock.full() )
+            if ( currBlock.full() )
             {
-                currBlock.writeToBuffer( (byte) b );
-            }
-            else
-            {
-                UUID newBlockID = UUID.randomUUID();
+                String newBlockID = UUID.randomUUID().toString();
                 FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID );
                 currBlock.setNextBlockID( newBlockID );
                 prevBlock = currBlock;
@@ -383,8 +378,9 @@ public final class InfinispanJF
 
                 flush();
 
-                currBlock.writeToBuffer( (byte) b );
             }
+
+            currBlock.writeToBuffer( (byte) b );
         }
 
         public void write( ByteBuffer buf ) throws IOException

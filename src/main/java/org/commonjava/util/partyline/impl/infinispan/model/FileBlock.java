@@ -31,9 +31,9 @@ public class FileBlock
 {
     private String fileID;
 
-    private UUID blockID;
+    private String blockID;
 
-    private UUID nextBlockID;
+    private String nextBlockID;
 
     private Date createdDate;
 
@@ -45,12 +45,12 @@ public class FileBlock
 
     private ByteBuffer data = ByteBuffer.allocateDirect( BLOCK_SIZE );
 
-    FileBlock( String fileID, UUID blockID )
+    FileBlock( String fileID, String blockID )
     {
         this( fileID, blockID, null );
     }
 
-    FileBlock( String fileID, UUID blockID, UUID nextBlockID )
+    FileBlock( String fileID, String blockID, String nextBlockID )
     {
         this.fileID = fileID;
         this.blockID = blockID;
@@ -80,17 +80,17 @@ public class FileBlock
         return lastModifiedDate;
     }
 
-    public UUID getBlockID()
+    public String getBlockID()
     {
         return blockID;
     }
 
-    public UUID getNextBlockID()
+    public String getNextBlockID()
     {
         return nextBlockID;
     }
 
-    public void setNextBlockID( UUID blockID )
+    public void setNextBlockID( String blockID )
     {
         nextBlockID = blockID;
     }
@@ -129,8 +129,8 @@ public class FileBlock
             throws IOException
     {
         out.writeUTF( fileID );
-        out.writeObject( blockID );
-        out.writeObject( nextBlockID );
+        out.writeUTF( blockID );
+        out.writeUTF( nextBlockID );
         out.writeObject( createdDate );
         out.writeObject( lastModifiedDate );
         out.writeInt( data.capacity() );
@@ -141,8 +141,8 @@ public class FileBlock
             throws IOException, ClassNotFoundException
     {
         fileID = in.readUTF();
-        blockID = (UUID) in.readObject();
-        nextBlockID = (UUID) in.readObject();
+        blockID = in.readUTF();
+        nextBlockID = in.readUTF();
         createdDate = (Date) in.readObject();
         lastModifiedDate = (Date) in.readObject();
         int bufferCapacity = in.readInt();

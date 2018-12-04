@@ -16,10 +16,16 @@
 package org.commonjava.util.partyline.spi;
 
 import org.commonjava.util.partyline.callback.StreamCallbacks;
+import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 
+import javax.transaction.HeuristicMixedException;
+import javax.transaction.HeuristicRollbackException;
+import javax.transaction.NotSupportedException;
+import javax.transaction.RollbackException;
+import javax.transaction.SystemException;
 import java.io.File;
 import java.io.IOException;
 
@@ -30,4 +36,8 @@ public interface JoinableFilesystem
             throws IOException, InterruptedException;
 
     LocalLockManager getLocalLockManager();
+
+    void updateDominantLocks( String path, LockLevel level )
+                    throws SystemException, NotSupportedException, HeuristicRollbackException, HeuristicMixedException,
+                    RollbackException;
 }

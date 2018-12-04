@@ -15,6 +15,7 @@
  */
 package org.commonjava.util.partyline.impl.local;
 
+import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
@@ -42,5 +43,11 @@ public class RandomAccessJFS
     public LocalLockManager getLocalLockManager()
     {
         return lockManager;
+    }
+
+    @Override
+    public void updateDominantLocks( String path, LockLevel level )
+    {
+        // TODO: this is handled by lock owner?
     }
 }

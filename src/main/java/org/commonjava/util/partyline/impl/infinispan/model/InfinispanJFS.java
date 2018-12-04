@@ -2,6 +2,7 @@ package org.commonjava.util.partyline.impl.infinispan.model;
 
 import com.sun.tools.javac.util.Context;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
+import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
@@ -14,12 +15,17 @@ import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryModified;
 import org.infinispan.notifications.cachelistener.event.CacheEntryEvent;
 
+import javax.transaction.HeuristicMixedException;
+import javax.transaction.HeuristicRollbackException;
+import javax.transaction.NotSupportedException;
+import javax.transaction.RollbackException;
+import javax.transaction.SystemException;
+import javax.transaction.TransactionManager;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 public class InfinispanJFS
                 implements JoinableFilesystem
@@ -32,14 +38,15 @@ public class InfinispanJFS
 
     private final Cache<String, FileMeta> metadataCache;
 
-    private final Cache<UUID, FileBlock> blockCache;
+    private final Cache<String, FileBlock> blockCache;
 
     public InfinispanJFS( final String nodeKey, final Cache<String, FileMeta> metadataCache,
-                          final Cache<UUID, FileBlock> blockCache )
+                          final Cache<String, FileBlock> blockCache )
     {
         this.nodeKey = nodeKey;
         this.metadataCache = metadataCache;
         this.blockCache = blockCache;
+        this.nodeKey = nodeKey;
     }
 
     @Override
@@ -52,42 +59,58 @@ public class InfinispanJFS
     @Override
     public LocalLockManager getLocalLockManager()
     {
-        return null;
+        return lockManager;
     }
 
-    FileBlock getNextBlock( final FileBlock prevBlock, final FileMeta metadata) throws IOException
+    @Override
+    public void updateDominantLocks( String path, LockLevel level )
+                    throws SystemException, NotSupportedException, HeuristicRollbackException, HeuristicMixedException,
+                    RollbackException
     {
-        synchronized ( InfinispanJFS.this )
+        TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
+        transactionManager.begin();
+        FileMeta meta = metadataCache.get( path );
+        if ( level == null )
         {
-            // TODO: make sure next will exist
-            UUID next = prevBlock.getNextBlockID();
-            FileBlock nextBlock = null;
-            while ( nextBlock == null )
-            {
-                nextBlock = blockCache.get( next );
-                if (nextBlock == null)
-                {
-                    try
-                    {
-                        lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
-                            // setup a cache listener for this UUID, and wait in a timed loop for it to return
-                            ClusterListener clusterListener = new ClusterListener( next, opLock );
-                            clusterListener.listenToCache( blockCache );
-                            opLock.await( WAIT_TIMEOUT );
+            meta.removeLock( this.nodeKey );
+        }
+        else
+        {
+            meta.addLock( this.nodeKey, level );
+        }
+        metadataCache.put( path, meta );
+        transactionManager.commit();
+    }
 
-                            return null;
-                        } );
-                    }
-                    catch ( final InterruptedException e )
+    FileBlock getNextBlock( final FileBlock prevBlock, final FileMeta metadata ) throws IOException
+    {
+        String next = prevBlock.getNextBlockID();
+        if ( next == null )
+        {
+            return null;
+        }
+        // setup a cache listener for the ID, and wait in a timed loop for it to return
+        try
+        {
+            lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
+                FileBlock nextBlock = null;
+                ClusterListener clusterListener = new ClusterListener( next, opLock );
+                while ( nextBlock == null )
+                {
+                    nextBlock = blockCache.get( next );
+                    if ( nextBlock == null )
                     {
-                        return null;
+                        clusterListener.listenToCache( blockCache );
                     }
                 }
-
-            }
-
-            return nextBlock;
+                return nextBlock;
+            } );
         }
+        catch ( InterruptedException e )
+        {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     void pushNextBlock( final FileBlock prevBlock, final FileBlock nextBlock, final FileMeta metadata )
@@ -114,8 +137,10 @@ public class InfinispanJFS
         blockCache.put( block.getBlockID(), block );
     }
 
-    void close( FileMeta metadata ) throws IOException
+    void close( FileMeta metadata, LocalLockOwner owner ) throws IOException
     {
+
+        TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
         try
         {
             lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
@@ -124,14 +149,19 @@ public class InfinispanJFS
                 // if the local lock owner is empty / lock count == 0 for this file, remove it from the node-level locks too.
                 // if the local lock owner's count is NOT 0, then we need to make sure our node's lock-level matches the one in
                 // the local lock manager, and update if necessary
-                LocalLockOwner owner = metadata.getLockOwner();
                 if ( owner == null || owner.getContextLockCount() == 0 )
                 {
-                    // Remove it from node level locks
+                    metadata.removeLock( this.nodeKey );
+                    transactionManager.begin();
+                    metadataCache.put( metadata.getFilePath(), metadata );
+                    transactionManager.commit();
                 }
                 else
                 {
-                    // Compare owner.getLockLevel() with node level lock and update
+                    // Compare owner.getLockLevel() with nodeLevel lock and update
+                    LockLevel nodeLevel = metadata.getLockLevel( this.nodeKey );
+                    // TODO: Negotiate the lock level
+
                 }
 
                 return null;
@@ -150,18 +180,25 @@ public class InfinispanJFS
         {
             return lockManager.reentrantSynchronous( path, ( opLock ) -> {
 
-                // we need to use cache.getAdvancedCache().getTransactionManager() to lock this entry and then update the node-level locks.
-                // this will be where we reserve the lock level (or change it, if our node is already represented)
-                FileMeta meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory(),
-                                                                                            owner ) );
+                TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
+                transactionManager.begin();
+                FileMeta meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory() ) );
+                // Check the current lock level
+                // TODO: Negotiate the lock level
+                LockLevel currentLockLevel = meta.getLockLevel( this.nodeKey );
+
+                meta.addLock( this.nodeKey, owner.getLockLevel() );
+                metadataCache.put( path, meta );
+                transactionManager.commit();
 
                 return meta;
             } );
         }
         catch ( InterruptedException e )
         {
-            throw new IOException( "Thread interrupted while retrieving / creating file metadata : " + path, e );
+            e.printStackTrace();
         }
+        return null;
     }
 
     @Listener
@@ -169,10 +206,11 @@ public class InfinispanJFS
     {
         List<CacheEntryEvent> events = Collections.synchronizedList( new ArrayList<CacheEntryEvent>() );
 
-        UUID key;
+        String key;
+
         ReentrantOperationLock lock;
 
-        public ClusterListener( UUID key, ReentrantOperationLock opLock )
+        public ClusterListener( String key, ReentrantOperationLock opLock )
         {
             this.key = key;
             this.lock = opLock;
@@ -182,9 +220,8 @@ public class InfinispanJFS
         public void onCacheCreatedEvent( CacheEntryEvent event )
         {
             // Check to see if the new entry is the one we're listening for
-            if ( event.getKey() == this.key )
+            if ( event.getKey().equals( this.key ) )
             {
-                // TODO: Do something here to notify
                 this.lock.signal();
             }
             events.add( event );
@@ -193,20 +230,29 @@ public class InfinispanJFS
         @CacheEntryModified
         public void onCacheEventModified( CacheEntryEvent event )
         {
-            if ( event.getKey() == this.key )
+            if ( event.getKey().equals( this.key ) )
             {
                 // Check to see if updated block was marked EOF
                 FileBlock updatedBlock = (FileBlock) event.getValue();
-                if( updatedBlock.isEOF() )
+                if ( updatedBlock.isEOF() )
                 {
                     this.lock.signal();
                 }
             }
         }
 
-        public void listenToCache( Cache<?, ?> cache )
+        public void listenToCache( Cache<?, ?> cache ) throws IOException
         {
             cache.addListener( this );
+
+            try
+            {
+                this.lock.await( WAIT_TIMEOUT );
+            }
+            catch ( InterruptedException e )
+            {
+                throw new IOException( "Thread interrupted while retrieving / creating file metadata" );
+            }
         }
     }
 

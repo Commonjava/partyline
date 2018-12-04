@@ -17,6 +17,7 @@ package org.commonjava.util.partyline.lock.local;
 
 import org.commonjava.cdi.util.weft.ThreadContext;
 import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -149,14 +150,14 @@ public final class LocalLockOwner
         return lockCount;
     }
 
-    public synchronized boolean unlock( final String label )
+    public synchronized UnlockStatus unlock( final String label )
     {
         String ownerName = getLockReservationName();
         LockOwnerInfo lockOwnerInfo = locks.get( ownerName );
         if ( lockOwnerInfo == null )
         {
-            logger.trace( "Not locked by: {}. Returning false.", ownerName );
-            return false;
+            logger.trace( "Not locked by: {}. Returning null.", ownerName );
+            return null;
         }
 
         lockOwnerInfo.locks.remove( label );
@@ -183,20 +184,23 @@ public final class LocalLockOwner
                     this.dominantLockLevel = newDom.level;
                     logger.trace( "New dominant holder is: {} with level: {}", this.dominantOwner,
                                   this.dominantLockLevel );
+                    return new UnlockStatus( true, true, this.dominantLockLevel );
                 }
                 else
                 {
                     logger.trace( "Locks seems to be empty; Unlocking" );
                     this.dominantOwner = null;
                     this.dominantLockLevel = null;
+                    // TODO: how best to handle this case?
+                    return new UnlockStatus( true, true, null );
                 }
             }
 
-            return true;
+            return new UnlockStatus( true, false, this.dominantLockLevel );
         }
 
         logger.trace( "Unlock operation did not free final lock from file" );
-        return false;
+        return new UnlockStatus( false, false, this.dominantLockLevel );
     }
 
     public LockLevel getLockLevel()

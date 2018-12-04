@@ -46,13 +46,11 @@ public class FileMeta
 
     private Map<String, LockLevel> lockMap = new ConcurrentHashMap<>();
 
-    private LocalLockOwner lockOwner;
 
-    FileMeta( String path, boolean directory, LocalLockOwner owner )
+    FileMeta( String path, boolean directory )
     {
         this.directory = directory;
         this.filePath = path;
-        this.lockOwner = owner;
 
         this.createdDate = new Date();
         this.lastModifiedDate = (Date) this.createdDate.clone();
@@ -68,7 +66,7 @@ public class FileMeta
 
     public FileBlock createBlock( UUID blockID, boolean first )
     {
-        FileBlock block = new FileBlock( this.filePath, UUID.randomUUID() );
+        FileBlock block = new FileBlock( this.filePath, UUID.randomUUID().toString() );
 
         if ( first )
         {
@@ -84,6 +82,16 @@ public class FileMeta
         lockMap.put( nodeID, level );
     }
 
+    void removeLock( String nodeID )
+    {
+        lockMap.remove( nodeID );
+    }
+
+    LockLevel getLockLevel( String nodeID )
+    {
+        return lockMap.get( nodeID );
+    }
+
     Date getCreatedDate()
     {
         return createdDate;
@@ -97,11 +105,6 @@ public class FileMeta
     FileBlock getFirstBlock()
     {
         return firstBlock;
-    }
-
-    LocalLockOwner getLockOwner()
-    {
-        return lockOwner;
     }
 
     public String getFilePath()
