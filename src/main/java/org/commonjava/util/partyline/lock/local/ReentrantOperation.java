@@ -30,5 +30,5 @@ import java.io.IOException;
 @FunctionalInterface
 public interface ReentrantOperation<T>
 {
-    T execute( ReentrantOperationLock opLock ) throws IOException;
+    T execute( ReentrantOperationLock opLock ) throws IOException, InterruptedException;
 }

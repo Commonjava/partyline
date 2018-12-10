@@ -3,9 +3,9 @@ package org.commonjava.util.partyline.lock;
 public class UnlockStatus
 {
 
-    boolean unlocked;
-    boolean dominanceChanged;
-    LockLevel dominantLockLevel;
+    private final boolean unlocked;
+    private final boolean dominanceChanged;
+    private final LockLevel dominantLockLevel;
 
     public UnlockStatus( boolean unlocked, boolean dominanceChanged, LockLevel dominantLockLevel )
     {

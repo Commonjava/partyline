@@ -19,6 +19,7 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
@@ -181,7 +182,10 @@ final class FileTree
                 if ( entry != null )
                 {
                     logger.trace( "Unlocking {} (owner: {})", f, ownerName );
-                    if ( entry.lock.unlock( label ) )
+                    UnlockStatus unlockStatus = entry.lock.unlock( label );
+                    filesystem.updateDominantLocks( f.getAbsolutePath(), unlockStatus );
+
+                    if ( unlockStatus.isUnlocked() )
                     {
                         logger.trace( "Unlocked; clearing resources associated with lock" );
 
@@ -238,7 +242,17 @@ final class FileTree
         while ( alsoLocked != null )
         {
             logger.trace( "ALSO Unlocking: {}", alsoLocked.name );
-            alsoLocked.lock.unlock( label );
+            UnlockStatus unlockStatus = alsoLocked.lock.unlock( label );
+            try
+            {
+                filesystem.updateDominantLocks( entry.file.getPath(), unlockStatus );
+            }
+            catch ( IOException e )
+            {
+                LoggerFactory.getLogger( getClass().getName() )
+                             .error( "Exception while updating dominant locks when unlocking entries associated with: "
+                                                     + entry.file.getPath(), e );
+            }
             //
             //            {
             //                // FIXME: This is probably a little bit wrong, but in practice it should never fail.
@@ -419,7 +433,8 @@ final class FileTree
                                 catch ( IOException | RuntimeException e )
                                 {
                                     // we just locked this, and the call failed...reverse the lock operation.
-                                    entry.lock.unlock( label );
+                                    UnlockStatus unlockStatus = entry.lock.unlock( label );
+                                    filesystem.updateDominantLocks( entry.file.getPath(), unlockStatus );
                                     throw e;
                                 }
                             }
@@ -541,7 +556,8 @@ final class FileTree
                         logger.trace( "File open but in process of closing; not joinable. Will wait..." );
 
                         // undo the lock we just placed on this entry, to allow it to clear...
-                        entry.lock.unlock( label );
+                        UnlockStatus unlockStatus = entry.lock.unlock( label );
+                        filesystem.updateDominantLocks( entry.file.getPath(), unlockStatus );
 
                         opLock.signal();
 

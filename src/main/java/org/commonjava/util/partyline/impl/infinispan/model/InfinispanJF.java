@@ -16,6 +16,7 @@
 package org.commonjava.util.partyline.impl.infinispan.model;
 
 import org.commonjava.util.partyline.callback.StreamCallbacks;
+import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
@@ -283,7 +284,8 @@ public final class InfinispanJF
                 }
                 else
                 {
-                    owner.unlock( labelFor( false, originalThreadName ) );
+                    UnlockStatus unlockStatus = owner.unlock( labelFor( false, originalThreadName ) );
+                    filesystem.updateDominantLocks( this.path, unlockStatus );
                     //                    owner.unlock( originalThreadName );
                 }
 
