@@ -173,6 +173,7 @@ final class FileTree
      * @return true if the file has no remaining locks after unlocking for this owner; false otherwise
      */
     boolean unlock( File f, final String label )
+                    throws IOException
     {
         try
         {
@@ -235,6 +236,7 @@ final class FileTree
     }
 
     private boolean unlockAssociatedEntries( final FileEntry entry, final String label )
+                    throws IOException
     {
         // the 'alsoLocked' entry field constitutes a linked list of locked entries.
         // When we unlock the topmost one, we need to unlock the ones that are linked too.
@@ -243,16 +245,8 @@ final class FileTree
         {
             logger.trace( "ALSO Unlocking: {}", alsoLocked.name );
             UnlockStatus unlockStatus = alsoLocked.lock.unlock( label );
-            try
-            {
-                filesystem.updateDominantLocks( entry.file.getPath(), unlockStatus );
-            }
-            catch ( IOException e )
-            {
-                LoggerFactory.getLogger( getClass().getName() )
-                             .error( "Exception while updating dominant locks when unlocking entries associated with: "
-                                                     + entry.file.getPath(), e );
-            }
+            filesystem.updateDominantLocks( alsoLocked.file.getPath(), unlockStatus );
+
             //
             //            {
             //                // FIXME: This is probably a little bit wrong, but in practice it should never fail.
@@ -320,7 +314,7 @@ final class FileTree
         }
         catch ( IOException e )
         {
-            logger.error( "SHOULD NEVER HAPPEN: IOException trying to unlock: " + f, e );
+            logger.error( "IOException trying to unlock: " + f, e );
         }
         catch ( InterruptedException e )
         {
