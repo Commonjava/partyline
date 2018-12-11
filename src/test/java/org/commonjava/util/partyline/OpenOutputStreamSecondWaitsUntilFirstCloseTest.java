@@ -24,7 +24,10 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -71,22 +74,22 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
     public void run()
             throws Exception
     {
-        final ExecutorService execs = Executors.newFixedThreadPool( 2 );
-        final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
+
 
         final File f = temp.newFile();
         final String first = "first";
         final String second = "second";
 
-        Map<String, String> returning = new HashMap<String, String>();
+        Map<String, Runnable> executions = new LinkedHashMap<>();
 
         for ( int i = 0; i < 2; i++ )
         {
             final int k = i;
-            execs.execute( () -> {
+            String tname = k < 1 ? first : second;
+            executions.put(tname, () -> {
 
-                Thread.currentThread().setName( "openOutputStream-" + k );
+                Thread.currentThread().setName( tname );
                 OutputStream o = null;
                 try
                 {
@@ -94,11 +97,9 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
                     {
                         case 0:
                             o = manager.openOutputStream( f, -1 );
-                            returning.put( first, String.valueOf( System.nanoTime() ) );
                             break;
                         case 1:
                             o = manager.openOutputStream( f, 100 );
-                            returning.put( second, String.valueOf( System.nanoTime() ) );
                     }
                     o.write( "Test data".getBytes() );
                     o.close();
@@ -108,21 +109,10 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
                     e.printStackTrace();
                     fail( "Failed to open outputStream: " + e.getMessage() );
                 }
-                finally
-                {
-                    latch.countDown();
-                }
-
             } );
         }
 
-        latch.await();
-
-        long fistTimestamp = Long.valueOf( returning.get( first ) );
-        long secondTimestamp = Long.valueOf( returning.get( second ) );
-        assertThat( first + " completed at: " + fistTimestamp + "\n" + second + " completed at: " + secondTimestamp
-                            + "\nFirst should complete before second.", fistTimestamp < secondTimestamp,
-                    equalTo( true ) );
+        assertThat( raceExecutions( executions ), equalTo( first ) );
     }
 
 }

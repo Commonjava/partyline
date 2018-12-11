@@ -30,7 +30,7 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.Map;
 
-import static org.commonjava.util.partyline.JoinableFileManager.PARTYLINE_OPEN_FILES;
+import static org.commonjava.util.partyline.Partyline.PARTYLINE_OPEN_FILES;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
@@ -53,7 +53,7 @@ public class CleanupThreadIOExceptionHandleTest
     @Ignore
     public void run() throws Exception
     {
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
         ThreadContext context = ThreadContext.getContext( true );
         final File f = temp.newFile( "test-byteman.txt" );
         FileUtils.write( f, "This is an IO Exception byteman test" );

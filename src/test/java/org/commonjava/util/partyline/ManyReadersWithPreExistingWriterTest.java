@@ -60,7 +60,7 @@ public class ManyReadersWithPreExistingWriterTest
 
     private ExecutorService executor = new ContextSensitiveExecutorService( Executors.newCachedThreadPool() );
 
-    private final JoinableFileManager mgr = new JoinableFileManager();
+    private final Partyline mgr = new Partyline();
 
     private String content;
 

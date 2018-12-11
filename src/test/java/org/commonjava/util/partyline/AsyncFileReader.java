@@ -16,6 +16,7 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.IOUtils;
+import org.commonjava.util.partyline.spi.JoinableFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;

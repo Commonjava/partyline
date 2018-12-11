@@ -17,7 +17,7 @@ package org.commonjava.util.partyline.fixture;
 
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.AbstractJointedIOTest;
-import org.commonjava.util.partyline.JoinableFile;
+import org.commonjava.util.partyline.spi.JoinableFile;
 
 import java.util.concurrent.CountDownLatch;
 

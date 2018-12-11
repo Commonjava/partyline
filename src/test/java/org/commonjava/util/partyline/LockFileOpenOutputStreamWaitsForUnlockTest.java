@@ -15,6 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.util.partyline.lock.LockLevel;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
@@ -23,8 +24,12 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -49,7 +54,7 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
      */
     @BMRules( rules = {
             // wait for lockUnlock call to exit
-            @BMRule( name = "openOutputStream", targetClass = "JoinableFileManager",
+            @BMRule( name = "openOutputStream", targetClass = "Partyline",
                      targetMethod = "openOutputStream",
                      targetLocation = "ENTRY",
                      condition = "$2==-1",
@@ -57,7 +62,7 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
                              + "debug(\"<<<proceed with openOutputStream.\")" ),
 
             // setup the trigger to signal openOutputStream when the lockUnlock exits
-            @BMRule( name = "lockUnlock", targetClass = "JoinableFileManager",
+            @BMRule( name = "lockUnlock", targetClass = "Partyline",
                      targetMethod = "unlock",
                      targetLocation = "EXIT",
                      condition = "$2.equals(\"test\")",
@@ -69,22 +74,18 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
     public void run()
             throws Exception
     {
-        final ExecutorService execs = Executors.newFixedThreadPool( 2 );
-        final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
 
         final File f = temp.newFile( "test.txt" );
         final String lockUnlock = "lock-clearLocks";
         final String output = "output";
 
-        Map<String, String> returning = new HashMap<String, String>();
-
-        execs.execute( () -> {
+        Map<String, Runnable> executions = new LinkedHashMap<>();
+        executions.put( output, () -> {
             Thread.currentThread().setName( output );
             try
             {
-                OutputStream o = manager.openOutputStream( f, -1 );
-                returning.put( output, String.valueOf( System.nanoTime() ) );
+                OutputStream o = manager.openOutputStream( f, 60000 );
                 o.close();
             }
             catch ( Exception e )
@@ -92,14 +93,9 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
                 e.printStackTrace();
                 fail( "Failed to open outputStream: " + e.getMessage() );
             }
-            finally
-            {
-                latch.countDown();
-            }
-
         } );
 
-        execs.execute( () -> {
+        executions.put( lockUnlock, () -> {
             Thread.currentThread().setName( lockUnlock );
             try
             {
@@ -108,26 +104,19 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
 
                 Thread.sleep( 100 );
 
-                assertThat( manager.unlock( f, "test" ), equalTo( true ) );
-                returning.put( lockUnlock, String.valueOf( System.nanoTime() ) );
+                assertThat( manager.unlock( f ), equalTo( true ) );
             }
             catch ( final InterruptedException e )
             {
                 fail( "Interrupted!" );
             }
-            finally
+            catch ( IOException e )
             {
-                latch.countDown();
+                e.printStackTrace();
+                fail( "Failed to unlock: " + e.getMessage() );
             }
         } );
 
-        latch.await();
-
-        long unlockTimestamp = Long.valueOf( returning.get( lockUnlock ) );
-        long outputTimestamp = Long.valueOf( returning.get( output ) );
-
-        assertThat( "\nLock-Unlock completed at: " + unlockTimestamp + "\n" + "OpenOutputStream completed at: "
-                            + outputTimestamp + "\nLock-Unlock should complete first",
-                    unlockTimestamp < outputTimestamp, equalTo( true ) );
+        assertThat( raceExecutions( executions ), equalTo( lockUnlock ) );
     }
 }

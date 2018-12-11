@@ -16,6 +16,11 @@
 package org.commonjava.util.partyline;
 
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
@@ -67,8 +72,10 @@ public class JoinFileWriteAndCloseBeforeFinishedTest
         final File file = temp.newFile();
         String threadName = "writer" + writers++;
 
-        final JoinableFile stream =
-                new JoinableFile( file, new LockOwner( file.getAbsolutePath(), name.getMethodName(), LockLevel.write ), true );
+        final JoinableFile stream = new RandomAccessJFS().getFile( file, new LocalLockOwner( file.getAbsolutePath(),
+                                                                                             name.getMethodName(),
+                                                                                             LockLevel.write ), null,
+                                                                   true, new ReentrantOperationLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

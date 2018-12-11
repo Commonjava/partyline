@@ -18,6 +18,12 @@ package org.commonjava.util.partyline;
 import org.junit.ClassRule;
 import org.junit.rules.TestRule;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
@@ -31,5 +37,34 @@ public class AbstractBytemanTest
 
     @ClassRule
     public static TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
+
+    protected String raceExecutions( final Map<String,Runnable> executions )
+            throws InterruptedException
+    {
+        final ExecutorService execs = Executors.newFixedThreadPool( executions.size() );
+        final CountDownLatch latch = new CountDownLatch( executions.size() );
+
+        List<String> result = new ArrayList<>();
+
+        executions.forEach( (label, runnable)-> execs.execute( ()->{
+            try
+            {
+                runnable.run();
+                synchronized ( result )
+                {
+                    result.add( label );
+                }
+            }
+            finally
+            {
+                System.out.println("Finished: " + label);
+                latch.countDown();
+            }
+        } ) );
+
+        latch.await();
+
+        return result.get( 0 );
+    }
 
 }

@@ -245,7 +245,9 @@ final class FileTree
         {
             logger.trace( "ALSO Unlocking: {}", alsoLocked.name );
             UnlockStatus unlockStatus = alsoLocked.lock.unlock( label );
-            filesystem.updateDominantLocks( alsoLocked.file.getPath(), unlockStatus );
+
+            String fname = alsoLocked.file != null ? alsoLocked.file.getPath() : alsoLocked.name;
+            filesystem.updateDominantLocks( fname, unlockStatus );
 
             //
             //            {

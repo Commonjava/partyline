@@ -76,7 +76,7 @@ public class TwoConcurrentReadsOnTheSameFileTest
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
 
         final String content = "This is a bmunit test";
         final File file = temp.newFile( "file_both_read.txt" );

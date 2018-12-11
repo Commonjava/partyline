@@ -17,20 +17,16 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.jboss.byteman.contrib.bmunit.BMRule;
-import org.jboss.byteman.contrib.bmunit.BMRules;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
-import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestRule;
-import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -51,12 +47,12 @@ import static org.junit.Assert.fail;
  * Test that checks resource management under the following conditions:
  * <ul>
  *     <li>Two threads open {@link InputStream}s to the same file concurrently and start reading</li>
- *     <li>Thread 1 finishes reading first, and calls {@link JoinableFileManager#cleanupCurrentThread()} before Thread 2 is done reading</li>
+ *     <li>Thread 1 finishes reading first, and calls {@link Partyline#cleanupCurrentThread()} before Thread 2 is done reading</li>
  * </ul>
  * <br/>
  * <b>EXPECTED RESULT:</b> Thread 2 should be able to complete its read operation and close the {@link JoinableFile}
  * when it completes. This process should be <b>unaffected</b> by Thread 1's
- * {@link JoinableFileManager#cleanupCurrentThread()} call.
+ * {@link Partyline#cleanupCurrentThread()} call.
  */
 public class ClearCurrentThreadWithAnotherThreadReadingTest
 {
@@ -88,7 +84,7 @@ public class ClearCurrentThreadWithAnotherThreadReadingTest
      *          <li>T2 opens input stream</li>
      *      </ol>
      *   </li>
-     *   <li>T1 calls {@link JoinableFileManager#cleanupCurrentThread()}</li>
+     *   <li>T1 calls {@link Partyline#cleanupCurrentThread()}</li>
      *   <li>T2 reads from input stream</li>
      * </ol>
      * <br/>
@@ -105,7 +101,7 @@ public class ClearCurrentThreadWithAnotherThreadReadingTest
         CountDownLatch t2StartLatch = new CountDownLatch( 1 );
         CountDownLatch t1CleanupLatch = new CountDownLatch( 1 );
 
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
 
         final String content = "This is a test";
         final File file = temp.newFile();
@@ -149,7 +145,7 @@ public class ClearCurrentThreadWithAnotherThreadReadingTest
         assertThat( returning.get( 1 ), equalTo( content ) );
     }
 
-    private void readFile( CountDownLatch start, CountDownLatch preReadLatch, CountDownLatch cleanupLatch, JoinableFileManager manager, File file,
+    private void readFile( CountDownLatch start, CountDownLatch preReadLatch, CountDownLatch cleanupLatch, Partyline manager, File file,
                            List<String> returning )
     {
         logger.info( "Starting file read...", Thread.currentThread().getName() );

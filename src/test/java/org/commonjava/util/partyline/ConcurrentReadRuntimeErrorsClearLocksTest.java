@@ -66,7 +66,7 @@ public class ConcurrentReadRuntimeErrorsClearLocksTest
         final CountDownLatch readBeginLatch = new CountDownLatch( 3 );
         final CountDownLatch readEndLatch = new CountDownLatch( 3 );
 
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
         manager.startReporting( 5000, 5000 );
         final long start = System.currentTimeMillis();
 

@@ -19,6 +19,11 @@ import ch.qos.logback.core.util.FileSize;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
@@ -37,8 +42,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import static org.commonjava.util.partyline.LockLevel.read;
-import static org.commonjava.util.partyline.LockLevel.write;
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
@@ -60,7 +63,9 @@ public class JoinableFileTest
         String src = "This is a test";
         FileUtils.write( f, src );
 
-        final JoinableFile stream = new JoinableFile( f, newLockOwner( f.getAbsolutePath(), read ), false );
+        final JoinableFile stream =
+                new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.read ), null, false,
+                                               new ReentrantOperationLock() );
 
         System.out.println( "File length: " + f.length() );
 
@@ -82,9 +87,9 @@ public class JoinableFileTest
         assertReadOfExistingFileOfSize("11mb");
     }
 
-    private LockOwner newLockOwner( String path, LockLevel level )
+    private LocalLockOwner newLockOwner( String path, LockLevel level )
     {
-        return new LockOwner( path, name.getMethodName(), level );
+        return new LocalLockOwner( path, name.getMethodName(), level );
     }
 
     private void assertReadOfExistingFileOfSize( String s )
@@ -102,7 +107,9 @@ public class JoinableFileTest
             IOUtils.write( src, out );
         }
 
-        final JoinableFile jf = new JoinableFile( f, newLockOwner( f.getAbsolutePath(), read ), false );
+        final JoinableFile jf =
+                new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.read ), null, false,
+                                               new ReentrantOperationLock() );
 
         try(InputStream stream = jf.joinStream())
         {
@@ -117,7 +124,9 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, newLockOwner( dir.getAbsolutePath(), read ), false );
+        final JoinableFile jf =
+                new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
+                                               new ReentrantOperationLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -130,7 +139,9 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, newLockOwner( dir.getAbsolutePath(), read ), false );
+        final JoinableFile jf =
+                new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
+                                               new ReentrantOperationLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -146,7 +157,9 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, newLockOwner( dir.getAbsolutePath(), read ), false );
+        final JoinableFile jf =
+                new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
+                                               new ReentrantOperationLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
         assertThat( jf.isJoinable(), equalTo( false ) );
@@ -160,7 +173,9 @@ public class JoinableFileTest
     {
         File dir = temp.newFolder();
         dir.mkdirs();
-        JoinableFile jf = new JoinableFile( dir, newLockOwner( dir.getAbsolutePath(), read ), false );
+        final JoinableFile jf =
+                new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
+                                               new ReentrantOperationLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -178,7 +193,8 @@ public class JoinableFileTest
         String threadName = "writer" + writers++;
 
         final JoinableFile stream =
-                new JoinableFile( tempFile, new LockOwner( tempFile.getAbsolutePath(), name.getMethodName(), LockLevel.write ), true );
+                new RandomAccessJFS().getFile( tempFile, newLockOwner( tempFile.getAbsolutePath(), LockLevel.write ), null, true,
+                                               new ReentrantOperationLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );
@@ -203,14 +219,18 @@ public class JoinableFileTest
             throws Exception
     {
         File f = temp.newFile();
-        JoinableFile jf = new JoinableFile( f, newLockOwner( f.getAbsolutePath(), write ), true );
+        JoinableFile jf =
+                new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.write ), null, true,
+                                               new ReentrantOperationLock() );
+
         OutputStream stream = jf.getOutputStream();
 
         String longer = "This is a really really really long string";
         stream.write( longer.getBytes() );
         stream.close();
 
-        jf = new JoinableFile( f, newLockOwner( f.getAbsolutePath(), write ), true );
+        jf = new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.write ), null, true,
+                                       new ReentrantOperationLock() );
         stream = jf.getOutputStream();
 
         String shorter = "This is a short string";
@@ -241,7 +261,8 @@ public class JoinableFileTest
         Logger logger = LoggerFactory.getLogger( getClass() );
         try
         {
-            jf = new JoinableFile( f, newLockOwner( f.getAbsolutePath(), read ), false );
+            jf = new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.read ), null, false,
+                                           new ReentrantOperationLock() );
             s1 = jf.joinStream();
             s2 = jf.joinStream();
 
@@ -276,7 +297,8 @@ public class JoinableFileTest
         String threadName = "writer" + writers++;
 
         final JoinableFile stream =
-                new JoinableFile( tempFile, new LockOwner( tempFile.getAbsolutePath(), name.getMethodName(), LockLevel.write ), true );
+                new RandomAccessJFS().getFile( tempFile, newLockOwner( tempFile.getAbsolutePath(), LockLevel.write ), null, true,
+                                               new ReentrantOperationLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

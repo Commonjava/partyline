@@ -76,7 +76,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
 
         final String main = "main";
         final String derivative = "derivative";

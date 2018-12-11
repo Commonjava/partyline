@@ -17,6 +17,12 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.commonjava.util.partyline.impl.local.RandomAccessJF;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -70,8 +76,8 @@ public class BinaryFileTest {
 
         File binaryFile = temp.newFile( "binary-file.bin" );
         ReentrantLock lock = new ReentrantLock();
-        JoinableFile jf = new JoinableFile( binaryFile, new LockOwner( binaryFile.getAbsolutePath(),
-                                                                         name.getMethodName(), LockLevel.write ), true );
+        JoinableFile jf = new RandomAccessJFS().getFile( binaryFile, new LocalLockOwner( binaryFile.getAbsolutePath(),
+                                                                               name.getMethodName(), LockLevel.write ), null, true, new ReentrantOperationLock() );
         OutputStream jos = jf.getOutputStream();
         InputStream actual = jf.joinStream();
 

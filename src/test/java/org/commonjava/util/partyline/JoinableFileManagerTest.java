@@ -18,6 +18,7 @@ package org.commonjava.util.partyline;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.cdi.util.weft.ThreadContext;
+import org.commonjava.util.partyline.lock.LockLevel;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -37,8 +38,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.commonjava.util.partyline.LockOwner.PARTYLINE_LOCK_OWNER;
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
+import static org.commonjava.util.partyline.lock.local.LocalLockOwner.PARTYLINE_LOCK_OWNER;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
@@ -54,7 +55,7 @@ public class JoinableFileManagerTest
     @Rule
     public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
-    private final JoinableFileManager mgr = new JoinableFileManager();
+    private final Partyline mgr = new Partyline();
 
     @Test
     public void lockAndUnlockTwiceInSequenceFromOneThread()

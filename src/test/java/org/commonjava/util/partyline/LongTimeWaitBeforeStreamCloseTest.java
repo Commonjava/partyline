@@ -38,7 +38,7 @@ public class LongTimeWaitBeforeStreamCloseTest
     @Test
     public void run() throws Exception
     {
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = new Partyline();
         final File f = temp.newFile( "long-wait-before-close.txt" );
         FileUtils.write( f, "This is a long time wait test" );
 

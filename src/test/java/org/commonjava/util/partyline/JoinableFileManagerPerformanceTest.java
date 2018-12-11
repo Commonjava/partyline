@@ -15,6 +15,11 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.junit.Test;
 
 import java.io.File;
@@ -30,7 +35,7 @@ import static org.junit.Assert.fail;
 public class JoinableFileManagerPerformanceTest
         extends AbstractJointedIOTest
 {
-    private final JoinableFileManager mgr = new JoinableFileManager();
+    private final Partyline mgr = new Partyline();
 
     @Test
     public void bigFileWritePerformanceTest()
@@ -42,7 +47,9 @@ public class JoinableFileManagerPerformanceTest
 
         String content = createBigFileContent();
 
-        JoinableFile jf = new JoinableFile( jft, new LockOwner( jft.getPath(), "write test", LockLevel.write ), true);
+        JoinableFile jf =
+                new RandomAccessJFS().getFile( jft, new LocalLockOwner( jft.getPath(), "write test", LockLevel.write ),
+                                               null, true, new ReentrantOperationLock() );
         long start = System.currentTimeMillis();
         System.out.println("Opening output...");
         try(OutputStream out = jf.getOutputStream())

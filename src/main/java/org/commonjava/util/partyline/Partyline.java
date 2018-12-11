@@ -378,20 +378,8 @@ public class Partyline
         return result;
     }
 
-    /**
-     * If the specified file was manually locked, unlock it and return the state of locks remaining on the file.
-     * Return true if the file is unlocked, false if locks remain.
-     *
-     * @see #lock(File, long, LockLevel, String)
-     * @see LockLevel
-     */
-    @Deprecated
-    public boolean unlock( final File file, String operationName )
-    {
-        return unlock( file );
-    }
-
     public boolean unlock( final File file )
+            throws IOException
     {
         logger.trace( ">>>MANUAL UNLOCK: {} by: {}", file, getLockReservationName() );
         boolean result = locks.unlock( file, MANUAL_LOCK_LABEL );
