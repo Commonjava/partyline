@@ -1,13 +1,11 @@
 package org.commonjava.util.partyline.impl.infinispan.model;
 
-import com.sun.tools.javac.util.Context;
 import org.commonjava.util.partyline.PartylineException;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
-import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
@@ -16,7 +14,6 @@ import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryModified;
 import org.infinispan.notifications.cachelistener.event.CacheEntryEvent;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.transaction.HeuristicMixedException;
@@ -85,7 +82,7 @@ public class InfinispanJFS
             }
             else
             {
-                meta.addLock( this.nodeKey, unlockStatus.getDominantLockLevel() );
+                meta.setLock( this.nodeKey, unlockStatus.getDominantLockLevel() );
             }
             metadataCache.put( path, meta );
         }
@@ -228,7 +225,7 @@ public class InfinispanJFS
                     // Only update the cache if the lock level changed
                     if ( currentLockLevel == null || currentLockLevel != owner.getLockLevel() )
                     {
-                        meta.addLock( this.nodeKey, owner.getLockLevel() );
+                        meta.setLock( this.nodeKey, owner.getLockLevel() );
                         metadataCache.put( path, meta );
                     }
 

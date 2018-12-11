@@ -77,7 +77,7 @@ public class FileMeta
         return block;
     }
 
-    void addLock( String nodeID, LockLevel level )
+    void setLock( String nodeID, LockLevel level )
     {
         lockMap.put( nodeID, level );
     }
