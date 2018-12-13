@@ -6,7 +6,10 @@ import org.commonjava.util.partyline.impl.infinispan.model.FileBlock;
 import org.commonjava.util.partyline.impl.infinispan.model.FileMeta;
 import org.commonjava.util.partyline.impl.infinispan.model.InfinispanJFS;
 import org.infinispan.Cache;
+import org.infinispan.configuration.cache.Configuration;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.DefaultCacheManager;
+import org.infinispan.transaction.TransactionMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +42,7 @@ public class Main
         logger.info( "Copying files from: " + indir + " to: " + outdir );
 
         DefaultCacheManager cacheManager = new DefaultCacheManager( true );
+        cacheManager.defineConfiguration( "files", new ConfigurationBuilder().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build() );
         Cache<String, FileBlock> blocks = cacheManager.getCache( "blocks", true );
         Cache<String, FileMeta> files = cacheManager.getCache( "files", true );
 
