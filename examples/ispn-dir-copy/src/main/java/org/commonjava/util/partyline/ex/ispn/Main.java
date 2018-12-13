@@ -35,7 +35,8 @@ public class Main
         File indir = new File( args[0] );
         File outdir = new File( args[1] );
 
-        System.out.println( "Copying files from: " + indir + " to: " + outdir );
+        Logger logger = LoggerFactory.getLogger( Main.class );
+        logger.info( "Copying files from: " + indir + " to: " + outdir );
 
         DefaultCacheManager cacheManager = new DefaultCacheManager( true );
         Cache<String, FileBlock> blocks = cacheManager.getCache( "blocks", true );
@@ -50,7 +51,6 @@ public class Main
         Stream.of( dirFiles ).parallel().forEach( dirFile->{
             if ( !dirFile.isDirectory() )
             {
-                Logger logger = LoggerFactory.getLogger( Main.class );
                 logger.info( "Copying from input: {}", dirFile );
 
                 try(InputStream in = new FileInputStream( dirFile ); OutputStream out = partyline.openOutputStream( dirFile ) )
@@ -78,7 +78,6 @@ public class Main
         Stream.of( dirFiles ).parallel().forEach( dirFile->{
             if ( !dirFile.isDirectory() )
             {
-                Logger logger = LoggerFactory.getLogger( Main.class );
                 logger.info( "Copying to output: {}", dirFile );
 
                 try (InputStream in = partyline.openInputStream( dirFile );
