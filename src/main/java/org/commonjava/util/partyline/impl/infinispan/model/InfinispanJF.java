@@ -377,29 +377,12 @@ public final class InfinispanJF
             if ( (int) b == -1 )
             {
                 currBlock.setEOF();
-                currBlock.writeToBuffer( (byte) b );
-                prevBlock = currBlock;
-                currBlock = null;
-                close();
-            }
-
-            // At this point if the current block is null then we're done writing
-            if ( currBlock == null )
-            {
-                // Do something that means writing is done
                 return;
             }
 
             if ( currBlock.full() )
             {
-                String newBlockID = UUID.randomUUID().toString();
-                FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID );
-                currBlock.setNextBlockID( newBlockID );
-                prevBlock = currBlock;
-                currBlock = block;
-
                 flush();
-
             }
 
             currBlock.writeToBuffer( (byte) b );
@@ -450,10 +433,19 @@ public final class InfinispanJF
         {
             if ( eof )
             {
+                // Update the block pointers
+                prevBlock = currBlock;
+                currBlock = null;
                 filesystem.pushNextBlock( prevBlock, currBlock, metadata );
             }
             else
             {
+                // Update the block pointers
+                String newBlockID = UUID.randomUUID().toString();
+                FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID );
+                currBlock.setNextBlockID( newBlockID );
+                prevBlock = currBlock;
+                currBlock = block;
                 filesystem.updateBlock( prevBlock );
             }
 
@@ -587,11 +579,9 @@ public final class InfinispanJF
 
             }
 
-            final int result = block.getBuffer().get();
-            read++;
+            final int result = block.readFromBuffer();
 
-            // byte is signed in java. Converting to unsigned:
-            return result & 0xff;
+            return result;
         }
 
         /**
