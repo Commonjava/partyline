@@ -436,6 +436,7 @@ public final class InfinispanJF
                 // Update the block pointers
                 prevBlock = currBlock;
                 currBlock = null;
+                prevBlock.getBuffer().flip();
                 filesystem.pushNextBlock( prevBlock, currBlock, metadata );
             }
             else
@@ -445,6 +446,7 @@ public final class InfinispanJF
                 FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID );
                 currBlock.setNextBlockID( newBlockID );
                 prevBlock = currBlock;
+                prevBlock.getBuffer().flip();
                 currBlock = block;
                 filesystem.updateBlock( prevBlock );
             }
@@ -553,7 +555,6 @@ public final class InfinispanJF
                 }
 
             }
-            // Is it better to write getting logic into FileBlock rather than expose the whole buffer?
             if ( block.getBuffer().position() == block.getBuffer().limit() )
             {
                 // We're done reading the buffer - check for EOF
