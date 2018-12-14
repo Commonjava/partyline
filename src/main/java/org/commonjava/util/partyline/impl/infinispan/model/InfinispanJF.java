@@ -82,6 +82,11 @@ public final class InfinispanJF
         try
         {
             this.metadata = filesystem.getMetadata( target, owner );
+            this.currBlock = metadata.getFirstBlock();
+            if ( this.currBlock == null )
+            {
+                currBlock = this.metadata.createBlock( UUID.randomUUID(), true );
+            }
 
             if ( target.isDirectory() )
             {
@@ -364,10 +369,25 @@ public final class InfinispanJF
         @Override
         public void write( final int b ) throws IOException
         {
+            if ( closed )
+            {
+                throw new IOException( "Cannot write to closed stream!" );
+            }
+
             if ( (int) b == -1 )
             {
                 currBlock.setEOF();
-                doFlush( true );
+                currBlock.writeToBuffer( (byte) b );
+                prevBlock = currBlock;
+                currBlock = null;
+                close();
+            }
+
+            // At this point if the current block is null then we're done writing
+            if ( currBlock == null )
+            {
+                // Do something that means writing is done
+                return;
             }
 
             if ( currBlock.full() )
@@ -420,6 +440,7 @@ public final class InfinispanJF
                 return;
             }
             doFlush( true );
+            closed = true;
             super.close();
 
             InfinispanJF.this.close();

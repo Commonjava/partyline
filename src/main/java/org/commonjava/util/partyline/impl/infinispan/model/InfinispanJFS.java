@@ -151,9 +151,12 @@ public class InfinispanJFS
         try
         {
             lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
-                blockCache.put( prevBlock.getBlockID(), prevBlock );
-                blockCache.put( nextBlock.getBlockID(), nextBlock );
-                metadataCache.put( metadata.getFilePath(), metadata );
+                updateBlock( prevBlock );
+                // If prevBlock is EOF then there will be no nextBlock
+                if (nextBlock != null )
+                {
+                    updateBlock( nextBlock );
+                }
 
                 return null;
             } );
@@ -166,7 +169,41 @@ public class InfinispanJFS
 
     void updateBlock( final FileBlock block ) throws IOException
     {
-        blockCache.put( block.getBlockID(), block );
+        TransactionManager transactionManager = blockCache.getAdvancedCache().getTransactionManager();
+        try
+        {
+            transactionManager.begin();
+            blockCache.put( block.getBlockID(), block );
+        }
+        catch ( NotSupportedException | SystemException e )
+        {
+            try
+            {
+                transactionManager.rollback();
+                throw new PartylineException( "Failed to begin transaction. Rolling back. Block: " + block.getBlockID(), e );
+            }
+            catch ( SystemException e1 )
+            {
+                LoggerFactory.getLogger( getClass().getName() )
+                             .error( "System Exception during transaction rollback involving Block: " + block.getBlockID(), e1 );
+            }
+        }
+
+        finally
+        {
+
+            try
+            {
+                transactionManager.commit();
+            }
+            catch ( RollbackException | HeuristicMixedException | HeuristicRollbackException | SystemException e )
+            {
+                LoggerFactory.getLogger( getClass().getName() )
+                             .error( "Exception during transaction commit involving block: " + block.getBlockID(), e );
+            }
+
+        }
+
     }
 
     void close( FileMeta metadata, LocalLockOwner owner ) throws IOException

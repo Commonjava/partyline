@@ -42,8 +42,10 @@ public class Main
         logger.info( "Copying files from: " + indir + " to: " + outdir );
 
         DefaultCacheManager cacheManager = new DefaultCacheManager( true );
-        cacheManager.defineConfiguration( "files", new ConfigurationBuilder().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build() );
+        cacheManager.defineConfiguration( "blocks", new ConfigurationBuilder().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build() );
         Cache<String, FileBlock> blocks = cacheManager.getCache( "blocks", true );
+
+        cacheManager.defineConfiguration( "files", new ConfigurationBuilder().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build() );
         Cache<String, FileMeta> files = cacheManager.getCache( "files", true );
 
         Partyline partyline = new Partyline( new InfinispanJFS( "single-node", files, blocks ) );
@@ -59,7 +61,10 @@ public class Main
 
                 try(InputStream in = new FileInputStream( dirFile ); OutputStream out = partyline.openOutputStream( dirFile ) )
                 {
+                    // copy writes and stops when -1 is read
                     IOUtils.copy( in, out );
+                    // workaround - write -1 to indicate EOF
+                    out.write(-1);
                 }
                 catch ( InterruptedException e )
                 {
