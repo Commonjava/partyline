@@ -38,6 +38,8 @@ public class Main
         File indir = new File( args[0] );
         File outdir = new File( args[1] );
 
+        int blockSize = 1024;
+
         Logger logger = LoggerFactory.getLogger( Main.class );
         logger.info( "Copying files from: " + indir + " to: " + outdir );
 
@@ -48,7 +50,7 @@ public class Main
         cacheManager.defineConfiguration( "files", new ConfigurationBuilder().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build() );
         Cache<String, FileMeta> files = cacheManager.getCache( "files", true );
 
-        Partyline partyline = new Partyline( new InfinispanJFS( "single-node", files, blocks ) );
+        Partyline partyline = new Partyline( new InfinispanJFS( "single-node", files, blocks, blockSize ) );
 
         AtomicInteger inCounter = new AtomicInteger();
         File[] dirFiles = indir.listFiles();

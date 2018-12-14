@@ -41,16 +41,14 @@ public class FileBlock
 
     private boolean eof = false;
 
-    private static final int BLOCK_SIZE = 1024 * 1024 * 8; // 8mb
+    private ByteBuffer data;
 
-    private ByteBuffer data = ByteBuffer.allocateDirect( BLOCK_SIZE );
-
-    FileBlock( String fileID, String blockID )
+    FileBlock( String fileID, String blockID, int blockSize )
     {
-        this( fileID, blockID, null );
+        this( fileID, blockID, blockSize, null );
     }
 
-    FileBlock( String fileID, String blockID, String nextBlockID )
+    FileBlock( String fileID, String blockID, int blockSize, String nextBlockID )
     {
         this.fileID = fileID;
         this.blockID = blockID;
@@ -58,6 +56,8 @@ public class FileBlock
 
         this.createdDate = new Date();
         this.lastModifiedDate = (Date) this.createdDate.clone();
+
+        data = ByteBuffer.allocateDirect( blockSize );
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "Created FileMeta {} at date {}", fileID.toString(), createdDate.toString() );

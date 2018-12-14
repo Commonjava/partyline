@@ -443,7 +443,7 @@ public final class InfinispanJF
             {
                 // Update the block pointers
                 String newBlockID = UUID.randomUUID().toString();
-                FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID );
+                FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID, metadata.getBlockSize() );
                 currBlock.setNextBlockID( newBlockID );
                 prevBlock = currBlock;
                 prevBlock.getBuffer().flip();

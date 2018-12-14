@@ -30,7 +30,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class FileMeta
-        implements Externalizable
+                implements Externalizable
 {
     private String filePath;
 
@@ -42,18 +42,21 @@ public class FileMeta
 
     private FileBlock firstBlock;
 
+    private final int blockSize;
+
     private Map<String, String> metadataMap = new ConcurrentHashMap<>();
 
     private Map<String, LockLevel> lockMap = new ConcurrentHashMap<>();
 
-
-    FileMeta( String path, boolean directory )
+    FileMeta( String path, boolean directory, int blockSize )
     {
         this.directory = directory;
         this.filePath = path;
 
         this.createdDate = new Date();
         this.lastModifiedDate = (Date) this.createdDate.clone();
+
+        this.blockSize = blockSize;
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "Created FileMeta {} at date {}", filePath, createdDate.toString() );
@@ -66,7 +69,7 @@ public class FileMeta
 
     public FileBlock createBlock( UUID blockID, boolean first )
     {
-        FileBlock block = new FileBlock( this.filePath, UUID.randomUUID().toString() );
+        FileBlock block = new FileBlock( filePath, blockID.toString(), blockSize );
 
         if ( first )
         {
@@ -102,6 +105,11 @@ public class FileMeta
         return lastModifiedDate;
     }
 
+    int getBlockSize()
+    {
+        return blockSize;
+    }
+
     FileBlock getFirstBlock()
     {
         return firstBlock;
@@ -112,8 +120,7 @@ public class FileMeta
         return filePath;
     }
 
-    public void writeExternal( ObjectOutput out )
-            throws IOException
+    public void writeExternal( ObjectOutput out ) throws IOException
     {
         out.writeUTF( filePath );
         out.writeObject( createdDate );
@@ -123,8 +130,7 @@ public class FileMeta
         out.writeObject( lockMap );
     }
 
-    public void readExternal( ObjectInput in )
-            throws IOException, ClassNotFoundException
+    public void readExternal( ObjectInput in ) throws IOException, ClassNotFoundException
     {
         filePath = in.readUTF();
         createdDate = (Date) in.readObject();
