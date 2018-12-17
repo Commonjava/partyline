@@ -43,6 +43,8 @@ public class FileBlock
 
     private ByteBuffer data;
 
+    private int blockSize;
+
     FileBlock( String fileID, String blockID, int blockSize )
     {
         this( fileID, blockID, blockSize, null );
@@ -57,7 +59,9 @@ public class FileBlock
         this.createdDate = new Date();
         this.lastModifiedDate = (Date) this.createdDate.clone();
 
-        data = ByteBuffer.allocateDirect( blockSize );
+        this.blockSize = blockSize;
+
+        data = ByteBuffer.allocateDirect( this.blockSize );
 
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "Created FileMeta {} at date {}", fileID.toString(), createdDate.toString() );
@@ -117,7 +121,7 @@ public class FileBlock
 
     public boolean full()
     {
-        return ( data.position() == data.capacity() );
+        return ( data.position() == data.limit() );
     }
 
     public void writeToBuffer( Byte b )
@@ -133,8 +137,11 @@ public class FileBlock
         out.writeUTF( nextBlockID );
         out.writeObject( createdDate );
         out.writeObject( lastModifiedDate );
+        out.writeBoolean( eof );
         out.writeInt( data.capacity() );
+        out.writeInt( data.limit() );
         out.write( data.array() );
+        out.writeInt( blockSize );
     }
 
     public void readExternal( ObjectInput in )
@@ -145,9 +152,12 @@ public class FileBlock
         nextBlockID = in.readUTF();
         createdDate = (Date) in.readObject();
         lastModifiedDate = (Date) in.readObject();
+        eof = in.readBoolean();
         int bufferCapacity = in.readInt();
+        int bufferLimit = in.readInt();
         byte[] buffer = new byte[bufferCapacity];
-        in.read( buffer, 0, bufferCapacity );
-        data = ByteBuffer.wrap( buffer, 0, bufferCapacity );
+        in.read( buffer, 0, bufferLimit );
+        data = ByteBuffer.wrap( buffer );
+        blockSize = in.readInt();
     }
 }

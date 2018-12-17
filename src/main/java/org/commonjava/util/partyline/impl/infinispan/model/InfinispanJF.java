@@ -555,7 +555,7 @@ public final class InfinispanJF
                 }
 
             }
-            if ( block.getBuffer().position() == block.getBuffer().limit() )
+            if ( block.full() )
             {
                 // We're done reading the buffer - check for EOF
                 if ( block.isEOF() )
