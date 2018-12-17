@@ -63,10 +63,14 @@ public class Main
 
                 try(InputStream in = new FileInputStream( dirFile ); OutputStream out = partyline.openOutputStream( dirFile ) )
                 {
-                    // copy writes and stops when -1 is read
-                    IOUtils.copy( in, out );
-                    // workaround - write -1 to indicate EOF
-                    out.write(-1);
+                    int b = in.read();
+                    out.write( b );
+                    while( b != -1 )
+                    {
+                        b = in.read();
+                        out.write( b );
+                    }
+
                 }
                 catch ( InterruptedException e )
                 {
