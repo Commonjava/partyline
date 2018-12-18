@@ -16,7 +16,6 @@
 package org.commonjava.util.partyline.impl.infinispan.model;
 
 import org.commonjava.util.partyline.lock.LockLevel;
-import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,6 +46,8 @@ public class FileMeta
     private Map<String, String> metadataMap = new ConcurrentHashMap<>();
 
     private Map<String, LockLevel> lockMap = new ConcurrentHashMap<>();
+
+    public FileMeta(){}
 
     FileMeta( String path, boolean directory, int blockSize )
     {
@@ -126,10 +127,10 @@ public class FileMeta
         out.writeBoolean( directory );
         out.writeObject( createdDate );
         out.writeObject( lastModifiedDate );
-        out.writeObject( firstBlock );
         out.writeInt( blockSize );
         out.writeObject( metadataMap );
         out.writeObject( lockMap );
+        out.writeObject( firstBlock );
     }
 
     public void readExternal( ObjectInput in ) throws IOException, ClassNotFoundException
@@ -138,9 +139,9 @@ public class FileMeta
         directory = in.readBoolean();
         createdDate = (Date) in.readObject();
         lastModifiedDate = (Date) in.readObject();
-        firstBlock = (FileBlock) in.readObject();
         blockSize = in.readInt();
         metadataMap = (ConcurrentHashMap<String, String>) in.readObject();
         lockMap = (ConcurrentHashMap<String, LockLevel>) in.readObject();
+        firstBlock = (FileBlock) in.readObject();
     }
 }

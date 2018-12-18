@@ -38,16 +38,23 @@ public class Main
         File indir = new File( args[0] );
         File outdir = new File( args[1] );
 
+        // Configure the block size for FileBlocks
         int blockSize = 1024;
 
         Logger logger = LoggerFactory.getLogger( Main.class );
         logger.info( "Copying files from: " + indir + " to: " + outdir );
 
         DefaultCacheManager cacheManager = new DefaultCacheManager( true );
-        cacheManager.defineConfiguration( "blocks", new ConfigurationBuilder().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build() );
+        ConfigurationBuilder builder = new ConfigurationBuilder();
+
+        // Pick a config - persistence or no persistence
+        Configuration persistence = builder.persistence().addSingleFileStore().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build();
+        // Configuration noPersist = builder.transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build();
+
+        cacheManager.defineConfiguration( "blocks", persistence );
         Cache<String, FileBlock> blocks = cacheManager.getCache( "blocks", true );
 
-        cacheManager.defineConfiguration( "files", new ConfigurationBuilder().transaction().transactionMode( TransactionMode.TRANSACTIONAL ).build() );
+        cacheManager.defineConfiguration( "files", persistence );
         Cache<String, FileMeta> files = cacheManager.getCache( "files", true );
 
         Partyline partyline = new Partyline( new InfinispanJFS( "single-node", files, blocks, blockSize ) );

@@ -24,7 +24,6 @@ import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.nio.ByteBuffer;
 import java.util.Date;
-import java.util.UUID;
 
 public class FileBlock
         implements Externalizable
@@ -44,6 +43,8 @@ public class FileBlock
     private ByteBuffer data;
 
     private int blockSize;
+
+    public FileBlock(){}
 
     FileBlock( String fileID, String blockID, int blockSize )
     {
@@ -109,6 +110,25 @@ public class FileBlock
         return data;
     }
 
+    byte[] getByteArray()
+    {
+        if ( data.hasArray() )
+        {
+            return data.array();
+        }
+        else
+        {
+            byte[] arr = new byte[data.capacity()];
+            // We need to try to preserve the position/limit of data
+            int originalPosition = data.position();
+            int originalLimit = data.limit();
+            data.get( arr, 0, data.limit() );
+            data.position( originalPosition );
+            data.limit( originalLimit );
+            return arr;
+        }
+    }
+
     public String getFileID()
     {
         return fileID;
@@ -121,6 +141,11 @@ public class FileBlock
 
     public boolean full()
     {
+        return ( data.position() == data.capacity() );
+    }
+
+    public boolean hasRemaining()
+    {
         return ( data.position() == data.limit() );
     }
 
@@ -132,24 +157,33 @@ public class FileBlock
     public void writeExternal( ObjectOutput out )
             throws IOException
     {
+        out.writeInt( blockSize );
         out.writeUTF( fileID );
         out.writeUTF( blockID );
+        if ( nextBlockID == null )
+        {
+            nextBlockID = "null";
+        }
         out.writeUTF( nextBlockID );
         out.writeObject( createdDate );
         out.writeObject( lastModifiedDate );
         out.writeBoolean( eof );
         out.writeInt( data.capacity() );
         out.writeInt( data.limit() );
-        out.write( data.array() );
-        out.writeInt( blockSize );
+        out.write( getByteArray() );
     }
 
     public void readExternal( ObjectInput in )
             throws IOException, ClassNotFoundException
     {
+        blockSize = in.readInt();
         fileID = in.readUTF();
         blockID = in.readUTF();
         nextBlockID = in.readUTF();
+        if ( nextBlockID == "null" )
+        {
+            nextBlockID = null;
+        }
         createdDate = (Date) in.readObject();
         lastModifiedDate = (Date) in.readObject();
         eof = in.readBoolean();
@@ -157,7 +191,7 @@ public class FileBlock
         int bufferLimit = in.readInt();
         byte[] buffer = new byte[bufferCapacity];
         in.read( buffer, 0, bufferLimit );
+        data.allocate( bufferCapacity );
         data = ByteBuffer.wrap( buffer );
-        blockSize = in.readInt();
     }
 }
