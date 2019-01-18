@@ -82,6 +82,11 @@ public final class InfinispanJF
         try
         {
             this.metadata = filesystem.getMetadata( target, owner );
+            this.currBlock = metadata.getFirstBlock();
+            if ( this.currBlock == null )
+            {
+                currBlock = this.metadata.createBlock( UUID.randomUUID(), true );
+            }
 
             if ( target.isDirectory() )
             {
@@ -364,22 +369,20 @@ public final class InfinispanJF
         @Override
         public void write( final int b ) throws IOException
         {
+            if ( closed )
+            {
+                throw new IOException( "Cannot write to closed stream!" );
+            }
+
             if ( (int) b == -1 )
             {
                 currBlock.setEOF();
-                doFlush( true );
+                return;
             }
 
             if ( currBlock.full() )
             {
-                String newBlockID = UUID.randomUUID().toString();
-                FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID );
-                currBlock.setNextBlockID( newBlockID );
-                prevBlock = currBlock;
-                currBlock = block;
-
                 flush();
-
             }
 
             currBlock.writeToBuffer( (byte) b );
@@ -420,6 +423,7 @@ public final class InfinispanJF
                 return;
             }
             doFlush( true );
+            closed = true;
             super.close();
 
             InfinispanJF.this.close();
@@ -429,10 +433,21 @@ public final class InfinispanJF
         {
             if ( eof )
             {
+                // Update the block pointers
+                prevBlock = currBlock;
+                currBlock = null;
+                prevBlock.getBuffer().flip();
                 filesystem.pushNextBlock( prevBlock, currBlock, metadata );
             }
             else
             {
+                // Update the block pointers
+                String newBlockID = UUID.randomUUID().toString();
+                FileBlock block = new FileBlock( metadata.getFilePath(), newBlockID, metadata.getBlockSize() );
+                currBlock.setNextBlockID( newBlockID );
+                prevBlock = currBlock;
+                prevBlock.getBuffer().flip();
+                currBlock = block;
                 filesystem.updateBlock( prevBlock );
             }
 
@@ -540,8 +555,7 @@ public final class InfinispanJF
                 }
 
             }
-            // Is it better to write getting logic into FileBlock rather than expose the whole buffer?
-            if ( block.getBuffer().position() == block.getBuffer().limit() )
+            if ( block.hasRemaining() )
             {
                 // We're done reading the buffer - check for EOF
                 if ( block.isEOF() )
@@ -566,11 +580,9 @@ public final class InfinispanJF
 
             }
 
-            final int result = block.getBuffer().get();
-            read++;
+            final int result = block.readFromBuffer();
 
-            // byte is signed in java. Converting to unsigned:
-            return result & 0xff;
+            return result;
         }
 
         /**

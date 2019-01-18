@@ -41,13 +41,24 @@ public class InfinispanJFS
 
     private final Cache<String, FileBlock> blockCache;
 
+    private final int blockSize;
+
+    private static final int DEFAULT_BLOCK_SIZE = 1024 * 1024 * 8; // 8mb
+
     public InfinispanJFS( final String nodeKey, final Cache<String, FileMeta> metadataCache,
                           final Cache<String, FileBlock> blockCache )
+    {
+        this( nodeKey, metadataCache, blockCache, DEFAULT_BLOCK_SIZE );
+    }
+
+    public InfinispanJFS( final String nodeKey, final Cache<String, FileMeta> metadataCache,
+                          final Cache<String, FileBlock> blockCache, int blockSize )
     {
         this.nodeKey = nodeKey;
         this.metadataCache = metadataCache;
         this.blockCache = blockCache;
         this.nodeKey = nodeKey;
+        this.blockSize = blockSize;
     }
 
     @Override
@@ -123,9 +134,9 @@ public class InfinispanJFS
         // setup a cache listener for the ID, and wait in a timed loop for it to return
         try
         {
-            lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
-                FileBlock nextBlock = null;
+            return lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
                 ClusterListener clusterListener = new ClusterListener( next, opLock );
+                FileBlock nextBlock = null;
                 while ( nextBlock == null )
                 {
                     nextBlock = blockCache.get( next );
@@ -151,9 +162,12 @@ public class InfinispanJFS
         try
         {
             lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
-                blockCache.put( prevBlock.getBlockID(), prevBlock );
-                blockCache.put( nextBlock.getBlockID(), nextBlock );
-                metadataCache.put( metadata.getFilePath(), metadata );
+                updateBlock( prevBlock );
+                // If prevBlock is EOF then there will be no nextBlock
+                if ( nextBlock != null )
+                {
+                    updateBlock( nextBlock );
+                }
 
                 return null;
             } );
@@ -166,7 +180,43 @@ public class InfinispanJFS
 
     void updateBlock( final FileBlock block ) throws IOException
     {
-        blockCache.put( block.getBlockID(), block );
+        TransactionManager transactionManager = blockCache.getAdvancedCache().getTransactionManager();
+        try
+        {
+            transactionManager.begin();
+            blockCache.put( block.getBlockID(), block );
+        }
+        catch ( NotSupportedException | SystemException e )
+        {
+            try
+            {
+                transactionManager.rollback();
+                throw new PartylineException( "Failed to begin transaction. Rolling back. Block: " + block.getBlockID(),
+                                              e );
+            }
+            catch ( SystemException e1 )
+            {
+                LoggerFactory.getLogger( getClass().getName() )
+                             .error( "System Exception during transaction rollback involving Block: "
+                                                     + block.getBlockID(), e1 );
+            }
+        }
+
+        finally
+        {
+
+            try
+            {
+                transactionManager.commit();
+            }
+            catch ( RollbackException | HeuristicMixedException | HeuristicRollbackException | SystemException e )
+            {
+                LoggerFactory.getLogger( getClass().getName() )
+                             .error( "Exception during transaction commit involving block: " + block.getBlockID(), e );
+            }
+
+        }
+
     }
 
     void close( FileMeta metadata, LocalLockOwner owner ) throws IOException
@@ -219,7 +269,8 @@ public class InfinispanJFS
                 {
                     transactionManager.begin();
 
-                    meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory() ) );
+                    meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory(),
+                                                                                       this.blockSize ) );
 
                     LockLevel currentLockLevel = meta.getLockLevel( this.nodeKey );
                     // Only update the cache if the lock level changed
@@ -240,7 +291,8 @@ public class InfinispanJFS
                     catch ( SystemException e1 )
                     {
                         LoggerFactory.getLogger( getClass().getName() )
-                                     .error( "System Exception during transaction rollback involving path: " + path, e1 );
+                                     .error( "System Exception during transaction rollback involving path: " + path,
+                                             e1 );
                     }
                 }
 
