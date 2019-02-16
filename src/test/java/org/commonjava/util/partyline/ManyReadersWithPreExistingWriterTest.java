@@ -16,7 +16,7 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.IOUtils;
-import org.commonjava.cdi.util.weft.ContextSensitiveExecutorService;
+import org.commonjava.cdi.util.weft.PoolWeftExecutorService;
 import org.commonjava.cdi.util.weft.ThreadContext;
 import org.commonjava.util.partyline.fixture.ThreadDumper;
 import org.junit.Before;
@@ -38,6 +38,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -58,7 +59,9 @@ public class ManyReadersWithPreExistingWriterTest
 
     private static final int ITERATIONS = 2;
 
-    private ExecutorService executor = new ContextSensitiveExecutorService( Executors.newCachedThreadPool() );
+    private ExecutorService executor =
+                    new PoolWeftExecutorService( "test", (ThreadPoolExecutor) Executors.newCachedThreadPool(), 30,
+                                                 10.0f, false, null, null );
 
     private final Partyline mgr = new Partyline();
 
