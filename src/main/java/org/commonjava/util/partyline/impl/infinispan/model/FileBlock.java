@@ -46,7 +46,7 @@ public class FileBlock
 
     public FileBlock(){}
 
-    FileBlock( String fileID, String blockID, int blockSize )
+    public FileBlock( String fileID, String blockID, int blockSize )
     {
         this( fileID, blockID, blockSize, null );
     }

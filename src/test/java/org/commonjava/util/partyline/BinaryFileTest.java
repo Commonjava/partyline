@@ -99,9 +99,12 @@ public class BinaryFileTest {
             }
         }
 
+        actual.close();
+
         if ( !failures.isEmpty() )
         {
             fail( "Failures: " + failures );
         }
+
     }
 }

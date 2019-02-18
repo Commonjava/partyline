@@ -57,7 +57,7 @@ import static org.junit.Assert.fail;
 public class ClearCurrentThreadWithAnotherThreadReadingTest
 {
     @ClassRule
-    public static TestRule timeout = timeoutRule( 2, TimeUnit.SECONDS );
+    public static TestRule timeout = timeoutRule( 4, TimeUnit.SECONDS );
 
     @Rule
     public TemporaryFolder temp = new TemporaryFolder();

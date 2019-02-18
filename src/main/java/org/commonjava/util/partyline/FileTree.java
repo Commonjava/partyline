@@ -127,7 +127,7 @@ final class FileTree
      */
     LockLevel getLockLevel( File file )
     {
-        FileEntry entry = getLockingEntry( file );
+        FileEntry entry = getNearestLockingEntry( file );
         logger.trace( "Locking entry for file: {} is: {}", file, entry );
         String path = file.getAbsolutePath();
         if ( entry == null )
@@ -137,19 +137,19 @@ final class FileTree
         else if ( !entry.name.equals( path ) )
         {
             logger.trace( "Returning parent lock level lock due to parent lock (level: {})",
-                          entry.lock.getLockLevel() );
-            return entry.lock.getLockLevel();
+                          entry.lockOwner.getLockLevel() );
+            return entry.lockOwner.getLockLevel();
         }
         else
         {
-            logger.trace( "Returning lock level for this file as: {}", entry.lock.getLockLevel() );
-            return entry.lock.getLockLevel();
+            logger.trace( "Returning lock level for this file as: {}", entry.lockOwner.getLockLevel() );
+            return entry.lockOwner.getLockLevel();
         }
     }
 
     int getContextLockCount( File file )
     {
-        FileEntry entry = getLockingEntry( file );
+        FileEntry entry = getNearestLockingEntry( file );
         if ( entry == null )
         {
             return 0;
@@ -161,7 +161,7 @@ final class FileTree
         }
         else
         {
-            return entry.lock.getContextLockCount();
+            return entry.lockOwner.getContextLockCount();
         }
     }
 
@@ -183,7 +183,7 @@ final class FileTree
                 if ( entry != null )
                 {
                     logger.trace( "Unlocking {} (owner: {})", f, ownerName );
-                    UnlockStatus unlockStatus = entry.lock.unlock( label );
+                    UnlockStatus unlockStatus = entry.lockOwner.unlock( label );
                     filesystem.updateDominantLocks( f.getAbsolutePath(), unlockStatus );
 
                     if ( unlockStatus.isUnlocked() )
@@ -197,7 +197,7 @@ final class FileTree
                             return false;
                         }
 
-                        if ( !entry.lock.isLocked() )
+                        if ( !entry.lockOwner.isLocked() )
                         {
                             entryMap.remove( entry.name );
                         }
@@ -209,7 +209,7 @@ final class FileTree
                     else
                     {
                         logger.trace( "{} Request did not completely unlock file. Remaining locks:\n\n{}", ownerName,
-                                      entry.lock.getLockInfo() );
+                                      entry.lockOwner.getLockInfo() );
                         opLock.signal();
                         return false;
                     }
@@ -244,7 +244,7 @@ final class FileTree
         while ( alsoLocked != null )
         {
             logger.trace( "ALSO Unlocking: {}", alsoLocked.name );
-            UnlockStatus unlockStatus = alsoLocked.lock.unlock( label );
+            UnlockStatus unlockStatus = alsoLocked.lockOwner.unlock( label );
 
             String fname = alsoLocked.file != null ? alsoLocked.file.getPath() : alsoLocked.name;
             filesystem.updateDominantLocks( fname, unlockStatus );
@@ -261,7 +261,7 @@ final class FileTree
             //                return false;
             //            }
 
-            if ( !alsoLocked.lock.isLocked() )
+            if ( !alsoLocked.lockOwner.isLocked() )
             {
                 entryMap.remove( alsoLocked.name );
             }
@@ -293,7 +293,7 @@ final class FileTree
                 if ( entry != null )
                 {
                     logger.trace( "Unlocking {}", f );
-                    entry.lock.clearLocks();
+                    entry.lockOwner.clearLocks();
                     logger.trace( "Unlocked; clearing resources associated with lock" );
 
                     closeEntryFile( entry, "" );
@@ -400,7 +400,7 @@ final class FileTree
             {
                 while ( end < 1 || System.currentTimeMillis() < end )
                 {
-                    entry = getLockingEntry( f );
+                    entry = getNearestLockingEntry( f );
 
                     /*
                     There are three basic states we need to capture here:
@@ -419,7 +419,7 @@ final class FileTree
                     {
                         if ( entry.name.equals( name ) )
                         {
-                            if ( entry.lock.lock( label, lockLevel ) )
+                            if ( entry.lockOwner.lock( label, lockLevel ) )
                             {
                                 logger.trace( "Added lock to existing entry: {}", entry.name );
                                 try
@@ -429,7 +429,7 @@ final class FileTree
                                 catch ( IOException | RuntimeException e )
                                 {
                                     // we just locked this, and the call failed...reverse the lock operation.
-                                    UnlockStatus unlockStatus = entry.lock.unlock( label );
+                                    UnlockStatus unlockStatus = entry.lockOwner.unlock( label );
                                     filesystem.updateDominantLocks( entry.file.getPath(), unlockStatus );
                                     throw e;
                                 }
@@ -442,13 +442,13 @@ final class FileTree
                         else if ( name.startsWith( entry.name ) )
                         {
                             logger.trace( "Re-locking the locking entry: {}.", entry.name );
-                            entry.lock.lock( label, lockLevel );
+                            entry.lockOwner.lock( label, lockLevel );
 
                             FileEntry alsoLocked = entry.alsoLocked;
                             while ( alsoLocked != null )
                             {
                                 logger.trace( "ALSO re-locking: {}", alsoLocked.name );
-                                alsoLocked.lock.lock( label, read );
+                                alsoLocked.lockOwner.lock( label, read );
                                 alsoLocked = alsoLocked.alsoLocked;
                             }
 
@@ -495,7 +495,7 @@ final class FileTree
             finally
             {
                 // no matter what else happens, do NOT allow a delete lock to remain
-                if ( entry != null && entry.lock.getLockLevel() == LockLevel.delete && entry.lock.isLocked() )
+                if ( entry != null && entry.lockOwner.getLockLevel() == LockLevel.delete && entry.lockOwner.isLocked() )
                 {
                     logger.trace( "Clearing locks on delete-locked file entry: {}", f );
                     clearLocks( f, label );
@@ -511,7 +511,7 @@ final class FileTree
      * Establish a Stream (input or output) associated with a given file. This method will acquire the appropriate lock
      * for the file (using {@link #tryLock(File, String, LockLevel, long, TimeUnit, ReentrantOperation)}) and
      * then retrieve the {@link JoinableFile} instance associated with the file (or create it if necessary). Finally,
-     * it passes the JoinableFile to the given {@link JoinFileOperation} to establish the appropriate stream into / out
+     * it passes the JoinableFile to the given {@link JoinableFileOperation} to establish the appropriate stream into / out
      * of that file.
      *
      * @param realFile The file to open
@@ -519,14 +519,14 @@ final class FileTree
      * @param timeout The period to wait in attempting to acquire the appropriate file lock
      * @param unit The time unit for the timeout period
      * @param function The function that establishes the appropriate stream into the {@link JoinableFile}
-     * @param <T> The type of stream returned from the given {@link JoinFileOperation}; output if doOutput is true, else input
+     * @param <T> The type of stream returned from the given {@link JoinableFileOperation}; output if doOutput is true, else input
      * @return The established stream associated with the given file
      * @throws IOException
      * @throws InterruptedException
      *
      * @see #tryLock(File, String, LockLevel, long, TimeUnit, ReentrantOperation)
      */
-    <T> T setOrJoinFile( File realFile, boolean doOutput, long timeout, TimeUnit unit, JoinFileOperation<T> function )
+    <T> T setOrJoinFile( File realFile, boolean doOutput, long timeout, TimeUnit unit, JoinableFileOperation<T> function )
                     throws IOException, InterruptedException
     {
         long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
@@ -552,7 +552,7 @@ final class FileTree
                         logger.trace( "File open but in process of closing; not joinable. Will wait..." );
 
                         // undo the lock we just placed on this entry, to allow it to clear...
-                        UnlockStatus unlockStatus = entry.lock.unlock( label );
+                        UnlockStatus unlockStatus = entry.lockOwner.unlock( label );
                         filesystem.updateDominantLocks( entry.file.getPath(), unlockStatus );
 
                         opLock.signal();
@@ -572,13 +572,9 @@ final class FileTree
                 else
                 {
                     logger.trace( "No pre-existing open file; opening new JoinableFile under opLock: {}", opLock );
-                    entry.file = filesystem.getFile( realFile, entry.lock,
+                    entry.file = filesystem.getFile( realFile, entry.lockOwner,
                                                      new FileTreeCallbacks( entry, realFile, label ), doOutput,
                                                      opLock );
-                    //                            entry.file = new RandomAccessJF( realFile, entry.lock,
-                    //                                                             new FileTreeCallbacks( callbacks, entry,
-                    //                                                                                  realFile, label ),
-                    //                                                             doOutput, opLock );
 
                     proceed = true;
                 }
@@ -645,7 +641,7 @@ final class FileTree
      * @param file The file whose context directories / files should be checked for locks
      * @return The nearest {@link FileEntry}, corresponding to a locked file. Parent directories returned before children.
      */
-    private synchronized FileEntry getLockingEntry( File file )
+    private synchronized FileEntry getNearestLockingEntry( File file )
     {
         FileEntry entry;
 
@@ -656,7 +652,7 @@ final class FileTree
             entry = entryMap.get( f.getAbsolutePath() );
             if ( entry != null )
             {
-                logger.trace( "Locked by: {}", entry.lock.getLockInfo() );
+                logger.trace( "Locked by: {}", entry.lockOwner.getLockInfo() );
                 return entry;
             }
             else
@@ -687,7 +683,7 @@ final class FileTree
     public boolean isLockedByCurrentThread( final File file )
     {
         FileEntry fileEntry = entryMap.get( file.getAbsolutePath() );
-        return fileEntry != null && fileEntry.lock.isLockedByCurrentThread();
+        return fileEntry != null && fileEntry.lockOwner.isLockedByCurrentThread();
     }
 
     /**
@@ -701,7 +697,7 @@ final class FileTree
 
         private FileEntry alsoLocked;
 
-        private final LocalLockOwner lock;
+        private final LocalLockOwner lockOwner;
 
         private JoinableFile file;
 
@@ -709,7 +705,7 @@ final class FileTree
         {
             this.name = name;
             this.alsoLocked = alsoLocked;
-            this.lock = new LocalLockOwner( name, lockingLabel, lockLevel );
+            this.lockOwner = new LocalLockOwner( name, lockingLabel, lockLevel );
         }
     }
 
@@ -759,16 +755,16 @@ final class FileTree
     /**
      * Operation that returns a stream (InputStream or OutputStream) from a {@link JoinableFile}. This is used from
      * {@link Partyline#openInputStream(File, long)} and {@link Partyline#openOutputStream(File, long)}
-     * via {@link FileTree#setOrJoinFile(File, boolean, long, TimeUnit, JoinFileOperation)}.
+     * via {@link FileTree#setOrJoinFile(File, boolean, long, TimeUnit, JoinableFileOperation)}.
      *
      * @param <T> The stream result.
      *
      * @see Partyline#openInputStream(File, long)
      * @see Partyline#openOutputStream(File, long)
-     * @see FileTree#setOrJoinFile(File, boolean, long, TimeUnit, JoinFileOperation)
+     * @see FileTree#setOrJoinFile(File, boolean, long, TimeUnit, JoinableFileOperation)
      */
     @FunctionalInterface
-    interface JoinFileOperation<T>
+    interface JoinableFileOperation<T>
     {
         T execute( JoinableFile file ) throws IOException;
     }
