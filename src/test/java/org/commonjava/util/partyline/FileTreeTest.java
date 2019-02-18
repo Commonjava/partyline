@@ -33,6 +33,7 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.concurrent.TimeUnit;
 
+import static org.commonjava.util.partyline.util.FileTreeUtils.renderTree;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
 
@@ -107,7 +108,7 @@ public class FileTreeTest
         //        JoinableFile jf = new JoinableFile( child, false );
         //        root.add( jf );
 
-        System.out.println( "File tree rendered as:\n" + root.renderTree() );
+        System.out.println( "File tree rendered as:\n" + renderTree( root.getUnmodifiableEntryMap() ) );
     }
 
     private File createStructure( String path, boolean writeTestFile )

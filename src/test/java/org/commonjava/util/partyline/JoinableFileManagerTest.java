@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 import static org.commonjava.util.partyline.lock.local.LocalLockOwner.PARTYLINE_LOCK_OWNER;
+import static org.commonjava.util.partyline.util.FileTreeUtils.forAll;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
@@ -327,7 +328,7 @@ public class JoinableFileManagerTest
         assertThat( "Threads did not end correctly!", end.getCount(), equalTo( 0L ) );
 
         AtomicInteger counter = new AtomicInteger( 0 );
-        mgr.getFileTree().forAll( entry->true, entry->counter.incrementAndGet() );
+        forAll( mgr.getFileTree().getUnmodifiableEntryMap(), entry->true, entry->counter.incrementAndGet() );
 
         assertThat( "FileEntry instance was not removed after closing!", counter.get(), equalTo( 0 ) );
     }
@@ -418,7 +419,7 @@ public class JoinableFileManagerTest
         assertThat( "Threads did not end correctly!", end.getCount(), equalTo( 0L ) );
 
         AtomicInteger counter = new AtomicInteger( 0 );
-        mgr.getFileTree().forAll( entry->true, entry->counter.incrementAndGet() );
+        forAll( mgr.getFileTree().getUnmodifiableEntryMap(), entry->true, entry->counter.incrementAndGet() );
 
         assertThat( "FileEntry instance was not removed after closing!", counter.get(), equalTo( 0 ) );
     }

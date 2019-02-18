@@ -30,24 +30,22 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
-import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
-import java.util.stream.Stream;
 
 import static org.commonjava.util.partyline.lock.LockLevel.read;
 import static org.commonjava.util.partyline.lock.local.LocalLockOwner.getLockReservationName;
+import static org.commonjava.util.partyline.util.FileTreeUtils.getNearestLockingEntry;
 
 /**
  * Maintains access to files in partyline. This class restricts operations to prohibit concurrent operations on the same
  * path at the same time, where 'operation' means opening a file, deleting a file, or locking/unlocking a file. It also
  * provides methods for extracting or logging information about the file locks that are currently active.
  */
-final class FileTree
+public final class FileTree
 {
 
     public static final long DEFAULT_LOCK_TIMEOUT = 5000;
@@ -68,55 +66,9 @@ final class FileTree
         this.lockManager = filesystem.getLocalLockManager();
     }
 
-    /**
-     * Iterate all {@link FileEntry instances} to extract information about active locks.
-     *
-     * @param fileConsumer The operation to extract information from a single active file.
-     */
-    void forAll( Consumer<JoinableFile> fileConsumer )
+    public Map<String, FileTree.FileEntry> getUnmodifiableEntryMap()
     {
-        forAll( entry -> entry.file != null, entry -> fileConsumer.accept( entry.file ) );
-    }
-
-    /**
-     * Iterate all {@link FileEntry instances} to extract information about active locks.
-     *
-     * @param predicate The selector determining which files to analyze.
-     * @param fileConsumer The operation to extract information from a single active file.
-     */
-    void forAll( Predicate<? super FileEntry> predicate, Consumer<FileEntry> fileConsumer )
-    {
-        TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
-        sorted.forEach( ( key, entry ) -> {
-            if ( entry != null && predicate.test( entry ) )
-            {
-                fileConsumer.accept( entry );
-            }
-        } );
-    }
-
-    /**
-     * Render the active files as a tree structure, for output to a log file or other string-oriented output.
-     */
-    String renderTree()
-    {
-        StringBuilder sb = new StringBuilder();
-        TreeMap<String, FileEntry> sorted = new TreeMap<>( entryMap );
-        sorted.forEach( ( key, entry ) -> {
-            sb.append( "+- " );
-            Stream.of( key.split( "/" ) ).forEach( ( part ) -> sb.append( "  " ) );
-
-            sb.append( new File( key ).getName() );
-            if ( entry.file != null )
-            {
-                sb.append( " (F)" );
-            }
-            else
-            {
-                sb.append( "/" );
-            }
-        } );
-        return sb.toString();
+        return Collections.unmodifiableMap( entryMap );
     }
 
     /**
@@ -127,7 +79,7 @@ final class FileTree
      */
     LockLevel getLockLevel( File file )
     {
-        FileEntry entry = getNearestLockingEntry( file );
+        FileEntry entry = getNearestLockingEntry( getUnmodifiableEntryMap(), file );
         logger.trace( "Locking entry for file: {} is: {}", file, entry );
         String path = file.getAbsolutePath();
         if ( entry == null )
@@ -149,7 +101,7 @@ final class FileTree
 
     int getContextLockCount( File file )
     {
-        FileEntry entry = getNearestLockingEntry( file );
+        FileEntry entry = getNearestLockingEntry( getUnmodifiableEntryMap(), file );
         if ( entry == null )
         {
             return 0;
@@ -380,14 +332,14 @@ final class FileTree
      * @param lockLevel The type of lock to acquire (read, write, delete)
      * @param timeout The timeout period before giving up on the lock acquisition
      * @param unit The time units for the timeout period (milliseconds, etc)
-     * @param operation The operation to perform once the file lock is acquired
+     * @param reentrantOperation The operation to perform once the file lock is acquired
      * @return the result of the provided operation, or else null
      * @throws InterruptedException
      *
      * @see LockLevel
      */
     private <T> T tryLock( File f, String label, LockLevel lockLevel, long timeout, TimeUnit unit,
-                           ReentrantOperation<T> operation ) throws InterruptedException, IOException
+                           ReentrantOperation<T> reentrantOperation ) throws InterruptedException, IOException
     {
         return lockManager.reentrantSynchronous( f.getAbsolutePath(), ( opLock ) -> {
             long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
@@ -400,7 +352,7 @@ final class FileTree
             {
                 while ( end < 1 || System.currentTimeMillis() < end )
                 {
-                    entry = getNearestLockingEntry( f );
+                    entry = getNearestLockingEntry( getUnmodifiableEntryMap(), f );
 
                     /*
                     There are three basic states we need to capture here:
@@ -424,7 +376,7 @@ final class FileTree
                                 logger.trace( "Added lock to existing entry: {}", entry.name );
                                 try
                                 {
-                                    return operation.execute( opLock );
+                                    return reentrantOperation.execute( opLock );
                                 }
                                 catch ( IOException | RuntimeException e )
                                 {
@@ -472,7 +424,7 @@ final class FileTree
                         entryMap.put( name, entry );
                         try
                         {
-                            return operation.execute( opLock );
+                            return reentrantOperation.execute( opLock );
                         }
                         catch ( IOException | RuntimeException e )
                         {
@@ -518,7 +470,7 @@ final class FileTree
      * @param doOutput If true, the associated function should return an {@link java.io.OutputStream}; else {@link java.io.InputStream}
      * @param timeout The period to wait in attempting to acquire the appropriate file lock
      * @param unit The time unit for the timeout period
-     * @param function The function that establishes the appropriate stream into the {@link JoinableFile}
+     * @param joinableFileOperation The function that establishes the appropriate stream into the {@link JoinableFile}
      * @param <T> The type of stream returned from the given {@link JoinableFileOperation}; output if doOutput is true, else input
      * @return The established stream associated with the given file
      * @throws IOException
@@ -526,8 +478,8 @@ final class FileTree
      *
      * @see #tryLock(File, String, LockLevel, long, TimeUnit, ReentrantOperation)
      */
-    <T> T setOrJoinFile( File realFile, boolean doOutput, long timeout, TimeUnit unit, JoinableFileOperation<T> function )
-                    throws IOException, InterruptedException
+    <T> T setOrJoinFile( File realFile, boolean doOutput, long timeout, TimeUnit unit,
+                         JoinableFileOperation<T> joinableFileOperation ) throws IOException, InterruptedException
     {
         long end = timeout < 1 ? -1 : System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert( timeout, unit );
 
@@ -581,7 +533,7 @@ final class FileTree
 
                 if ( proceed )
                 {
-                    return function.execute( entry.file );
+                    return joinableFileOperation.execute( entry.file );
                 }
 
                 return null;
@@ -594,7 +546,7 @@ final class FileTree
         }
 
         logger.trace( "Failed to lock file for {}", doOutput ? "writing" : "reading" );
-        return function.execute( null );
+        return joinableFileOperation.execute( null );
     }
 
     /**
@@ -614,10 +566,7 @@ final class FileTree
     {
         return tryLock( file, "Delete File", LockLevel.delete, timeout, unit, ( opLock ) -> {
             FileEntry entry = entryMap.remove( file.getAbsolutePath() );
-            //            synchronized ( this )
-            //            {
             opLock.signal();
-            //            }
 
             if ( file.exists() )
             {
@@ -626,58 +575,6 @@ final class FileTree
 
             return true;
         } ) == Boolean.TRUE;
-    }
-
-    /**
-     * When trying to lock a file, we first must ensure that no directory further up the hierarchy is already locked with
-     * a more restrictive lock. If we're trying to lock a directory, we also must ensure that no child directory/file
-     * is locked with a more restrictive lock. This method checks for those cases, and returns the {@link FileEntry}
-     * from the ancestry or descendent files/directories that is already locked.
-     *
-     * This should prevent us from deleting a directory when a child file within that directory structure is being read
-     * or written. Likewise, it should prevent us from reading or writing a file in a directory already locked for
-     * deletion.
-     *
-     * @param file The file whose context directories / files should be checked for locks
-     * @return The nearest {@link FileEntry}, corresponding to a locked file. Parent directories returned before children.
-     */
-    private synchronized FileEntry getNearestLockingEntry( File file )
-    {
-        FileEntry entry;
-
-        // search self and ancestors...
-        File f = file;
-        do
-        {
-            entry = entryMap.get( f.getAbsolutePath() );
-            if ( entry != null )
-            {
-                logger.trace( "Locked by: {}", entry.lockOwner.getLockInfo() );
-                return entry;
-            }
-            else
-            {
-                logger.trace( "No lock found for: {}", f );
-            }
-
-            f = f.getParentFile();
-        }
-        while ( f != null );
-
-        // search for children...
-        if ( file.isDirectory() )
-        {
-            String fp = file.getAbsolutePath();
-            Optional<String> result =
-                            entryMap.keySet().stream().filter( ( path ) -> path.startsWith( fp ) ).findFirst();
-            if ( result.isPresent() )
-            {
-                logger.trace( "Child: {} is locked; returning child as locking entry", result.get() );
-                return entryMap.get( result.get() );
-            }
-        }
-
-        return null;
     }
 
     public boolean isLockedByCurrentThread( final File file )
@@ -691,7 +588,7 @@ final class FileTree
      * associated with a path and a {@link JoinableFile}, even when there is no JoinableFile yet. They are mapped to the
      * path to allow concurrent operations to access this state and open additional (reader) streams, etc.
      */
-    static final class FileEntry
+    public static final class FileEntry
     {
         private final String name;
 
@@ -700,6 +597,16 @@ final class FileTree
         private final LocalLockOwner lockOwner;
 
         private JoinableFile file;
+
+        public LocalLockOwner getLockOwner()
+        {
+            return lockOwner;
+        }
+
+        public JoinableFile getFile()
+        {
+            return file;
+        }
 
         FileEntry( String name, String lockingLabel, LockLevel lockLevel, final FileEntry alsoLocked )
         {
