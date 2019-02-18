@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.commonjava.util.partyline.impl.infinispan.model;
+package org.commonjava.util.partyline.impl.infinispan;
 
 import org.commonjava.util.partyline.callback.StreamCallbacks;
+import org.commonjava.util.partyline.impl.infinispan.model.FileBlock;
+import org.commonjava.util.partyline.impl.infinispan.model.FileMeta;
 import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
@@ -30,8 +32,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

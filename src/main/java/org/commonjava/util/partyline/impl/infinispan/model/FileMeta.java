@@ -49,7 +49,7 @@ public class FileMeta
 
     public FileMeta(){}
 
-    FileMeta( String path, boolean directory, int blockSize )
+    public FileMeta( String path, boolean directory, int blockSize )
     {
         this.directory = directory;
         this.filePath = path;
@@ -81,17 +81,17 @@ public class FileMeta
         return block;
     }
 
-    void setLock( String nodeID, LockLevel level )
+    public void setLock( String nodeID, LockLevel level )
     {
         lockMap.put( nodeID, level );
     }
 
-    void removeLock( String nodeID )
+    public void removeLock( String nodeID )
     {
         lockMap.remove( nodeID );
     }
 
-    LockLevel getLockLevel( String nodeID )
+    public LockLevel getLockLevel( String nodeID )
     {
         return lockMap.get( nodeID );
     }
@@ -106,12 +106,12 @@ public class FileMeta
         return lastModifiedDate;
     }
 
-    int getBlockSize()
+    public int getBlockSize()
     {
         return blockSize;
     }
 
-    FileBlock getFirstBlock()
+    public FileBlock getFirstBlock()
     {
         return firstBlock;
     }

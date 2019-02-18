@@ -1,7 +1,9 @@
-package org.commonjava.util.partyline.impl.infinispan.model;
+package org.commonjava.util.partyline.impl.infinispan;
 
 import org.commonjava.util.partyline.PartylineException;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
+import org.commonjava.util.partyline.impl.infinispan.model.FileBlock;
+import org.commonjava.util.partyline.impl.infinispan.model.FileMeta;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
