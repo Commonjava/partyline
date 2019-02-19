@@ -400,7 +400,7 @@ public final class InfinispanJF
         @Override
         public void flush() throws IOException
         {
-            synchronized ( InfinispanJF.this )
+            synchronized ( InfinispanJF.this ) // TODO: why we need this?  'closed' is a local field
             {
                 if ( closed )
                 {
@@ -546,7 +546,7 @@ public final class InfinispanJF
         @Override
         public int read() throws IOException
         {
-            synchronized ( InfinispanJF.this )
+            synchronized ( InfinispanJF.this ) // TODO: why need it ??? 'closed' is a local field
             {
                 if ( closed )
                 {
@@ -555,7 +555,7 @@ public final class InfinispanJF
                 }
 
             }
-            if ( block.hasRemaining() )
+            if ( block.hasRemaining() ) // TODO: seems it should be '!hasRemaining'
             {
                 // We're done reading the buffer - check for EOF
                 if ( block.isEOF() )
@@ -580,7 +580,9 @@ public final class InfinispanJF
 
             }
 
-            final int result = block.readFromBuffer();
+            final int result = block.readFromBuffer(); // TODO: isn't the block shared? reading from buffer would change the position.
+            // this affects other threads' reading. we may need a local position/buffer
+            // probably we have to abandon the ByteBuffer because it can not do concurrent read/write, ie. put() then get() won't work
 
             return result;
         }

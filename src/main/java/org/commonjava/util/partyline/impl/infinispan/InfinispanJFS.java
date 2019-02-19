@@ -144,7 +144,7 @@ public class InfinispanJFS
                     nextBlock = blockCache.get( next );
                     if ( nextBlock == null )
                     {
-                        clusterListener.listenToCache( blockCache );
+                        clusterListener.listenToCacheAndWait( blockCache );
                     }
                 }
                 return nextBlock;
@@ -203,7 +203,6 @@ public class InfinispanJFS
                                                      + block.getBlockID(), e1 );
             }
         }
-
         finally
         {
 
@@ -297,10 +296,8 @@ public class InfinispanJFS
                                              e1 );
                     }
                 }
-
                 finally
                 {
-
                     try
                     {
                         transactionManager.commit();
@@ -362,7 +359,7 @@ public class InfinispanJFS
             }
         }
 
-        public void listenToCache( Cache<?, ?> cache ) throws IOException
+        public void listenToCacheAndWait( Cache<?, ?> cache ) throws IOException
         {
             cache.addListener( this );
 

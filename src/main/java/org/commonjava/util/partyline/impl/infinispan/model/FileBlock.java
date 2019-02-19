@@ -110,11 +110,11 @@ public class FileBlock
         return data;
     }
 
-    byte[] getByteArray()
+    private byte[] getByteArray()
     {
         if ( data.hasArray() )
         {
-            return data.array();
+            return data.array(); // TODO: if we use data.array() we might also save the arrayOffset
         }
         else
         {
@@ -146,7 +146,7 @@ public class FileBlock
 
     public boolean hasRemaining()
     {
-        return ( data.position() == data.limit() );
+        return ( data.position() == data.limit() ); // TODO: should it be: pos < limit?
     }
 
     public void writeToBuffer( Byte b )
@@ -160,7 +160,7 @@ public class FileBlock
         out.writeInt( blockSize );
         out.writeUTF( fileID );
         out.writeUTF( blockID );
-        if ( nextBlockID == null )
+        if ( nextBlockID == null ) // TODO: why we need it? objectout/input handles null just fine
         {
             nextBlockID = "null";
         }
@@ -193,5 +193,6 @@ public class FileBlock
         in.read( buffer, 0, bufferLimit );
         data.allocate( bufferCapacity );
         data = ByteBuffer.wrap( buffer );
+        data.limit( bufferLimit ); // TODO: need to restore limit
     }
 }
