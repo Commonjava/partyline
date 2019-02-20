@@ -15,6 +15,8 @@
  */
 package org.commonjava.util.partyline.impl.local;
 
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.global.GlobalLockManager;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
@@ -89,6 +91,8 @@ public final class RandomAccessJF
 
     private final ReentrantOperationLock opLock;
 
+    private final GlobalLockManager globalLockManager;
+
     /**
      * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
      * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
@@ -100,7 +104,7 @@ public final class RandomAccessJF
      */
     RandomAccessJF( final File target, final LocalLockOwner owner, boolean doOutput ) throws IOException
     {
-        this( target, owner, null, doOutput, new ReentrantOperationLock() );
+        this( target, owner, null, doOutput, new ReentrantOperationLock(), null );
     }
 
     /**
@@ -115,12 +119,13 @@ public final class RandomAccessJF
      * the last joined input stream (or this stream, if there are none) closes.
      */
     RandomAccessJF( final File target, final LocalLockOwner owner, final StreamCallbacks callbacks, boolean doOutput,
-                    ReentrantOperationLock opLock ) throws IOException
+                    ReentrantOperationLock opLock, final GlobalLockManager globalLockManager ) throws IOException
     {
         this.owner = owner;
         this.path = target.getPath();
         this.callbacks = callbacks;
         this.opLock = opLock;
+        this.globalLockManager = globalLockManager;
 
         target.getParentFile().mkdirs();
 
@@ -357,6 +362,11 @@ public final class RandomAccessJF
                 else
                 {
                     logger.trace( "Channel already closed..." );
+                }
+
+                if ( globalLockManager != null )
+                {
+                    globalLockManager.unlock( path, output != null ? LockLevel.write : LockLevel.read );
                 }
 
                 logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,

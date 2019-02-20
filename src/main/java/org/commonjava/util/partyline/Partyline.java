@@ -19,6 +19,7 @@ import org.commonjava.cdi.util.weft.ThreadContext;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.impl.local.RandomAccessJF;
 import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.global.GlobalLockManager;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -137,7 +138,12 @@ public class Partyline
         this( new RandomAccessJFS() );
     }
 
-    public Partyline(JoinableFilesystem filesystem)
+    public Partyline( GlobalLockManager globalLockManager ) // for cluster env
+    {
+        this( new RandomAccessJFS( globalLockManager ) );
+    }
+
+    public Partyline( JoinableFilesystem filesystem )
     {
         this.timer = new Timer( true );
         this.locks = new FileTree( filesystem );

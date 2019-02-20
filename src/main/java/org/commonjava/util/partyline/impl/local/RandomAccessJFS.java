@@ -15,8 +15,8 @@
  */
 package org.commonjava.util.partyline.impl.local;
 
-import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.UnlockStatus;
+import org.commonjava.util.partyline.lock.global.GlobalLockManager;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
@@ -27,17 +27,39 @@ import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import java.io.File;
 import java.io.IOException;
 
+import static org.commonjava.util.partyline.lock.LockLevel.write;
+import static org.commonjava.util.partyline.lock.LockLevel.read;
+
 public class RandomAccessJFS
-        implements JoinableFilesystem
+                implements JoinableFilesystem
 {
     private final LocalLockManager lockManager = new LocalLockManager();
 
+    private final GlobalLockManager globalLockManager;
+
+    public RandomAccessJFS()
+    {
+        this( null );
+    }
+
+    public RandomAccessJFS( final GlobalLockManager globalLockManager )
+    {
+        this.globalLockManager = globalLockManager;
+    }
+
     @Override
     public JoinableFile getFile( final File file, final LocalLockOwner lockOwner, final StreamCallbacks callbacks,
-                                 final boolean doOutput, ReentrantOperationLock opLock )
-            throws IOException
+                                 final boolean doOutput, ReentrantOperationLock opLock ) throws IOException
     {
-        return new RandomAccessJF( file, lockOwner, callbacks, doOutput, opLock );
+        if ( globalLockManager != null )
+        {
+            boolean locked = globalLockManager.tryLock( file.getAbsolutePath(), doOutput ? write : read, -1 );
+            if ( !locked )
+            {
+                throw new IOException( "File locked by others, path: " + file.getAbsolutePath() );
+            }
+        }
+        return new RandomAccessJF( file, lockOwner, callbacks, doOutput, opLock, globalLockManager );
     }
 
     @Override
