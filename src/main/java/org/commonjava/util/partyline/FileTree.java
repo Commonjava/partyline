@@ -20,6 +20,7 @@ import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.UnlockStatus;
+import org.commonjava.util.partyline.lock.global.GlobalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
@@ -60,10 +61,18 @@ public final class FileTree
 
     private final LocalLockManager lockManager;
 
+    private final GlobalLockManager globalLockManager;
+
     FileTree( JoinableFilesystem filesystem )
+    {
+        this( filesystem, null );
+    }
+
+    FileTree( JoinableFilesystem filesystem, GlobalLockManager globalLockManager ) // for cluster env
     {
         this.filesystem = filesystem;
         this.lockManager = filesystem.getLocalLockManager();
+        this.globalLockManager = globalLockManager;
     }
 
     public Map<String, FileTree.FileEntry> getUnmodifiableEntryMap()
@@ -565,6 +574,18 @@ public final class FileTree
     boolean delete( File file, long timeout, TimeUnit unit ) throws InterruptedException, IOException
     {
         return tryLock( file, "Delete File", LockLevel.delete, timeout, unit, ( opLock ) -> {
+
+            if ( globalLockManager != null )
+            {
+                // for global Evn, we don't mind it is delete or write. We just use write lock for deletion.
+                boolean locked = globalLockManager.tryLock( file.getAbsolutePath(), LockLevel.write, -1 );
+                if ( !locked )
+                {
+                    logger.warn( "Can not get global lock and abort deletion, path: ", file.getAbsoluteFile() );
+                    return false;
+                }
+            }
+
             FileEntry entry = entryMap.remove( file.getAbsolutePath() );
             opLock.signal();
 
@@ -573,6 +594,11 @@ public final class FileTree
                 FileUtils.forceDelete( file );
             }
 
+            if ( globalLockManager != null )
+            {
+                globalLockManager.unlock( file.getAbsolutePath(), LockLevel.write );
+            }
+            
             return true;
         } ) == Boolean.TRUE;
     }

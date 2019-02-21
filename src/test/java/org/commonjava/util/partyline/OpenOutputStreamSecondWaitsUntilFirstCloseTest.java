@@ -54,16 +54,16 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
     @BMRules( rules = {
             // wait for first openOutputStream call to exit
             @BMRule( name = "second openOutputStream", targetClass = "Partyline",
-                     targetMethod = "openOutputStream(File)",
+                     targetMethod = "openOutputStream(File,long)",
                      targetLocation = "ENTRY",
                      condition = "$2==100",
                      action = "debug(\">>>wait for service enter first openOutputStream.\");"
-                             + "waitFor(\"first openOutputStream\");" + "java.lang.Thread.sleep(10);"
+                             + "waitFor(\"first openOutputStream\");" + "java.lang.Thread.sleep(100);"
                              + "debug(\"<<<proceed with second openOutputStream.\")" ),
 
             // setup the trigger to signal second openOutputStream when the first openOutputStream exits
             @BMRule( name = "first openOutputStream", targetClass = "Partyline",
-                     targetMethod = "openOutputStream(File)",
+                     targetMethod = "openOutputStream(File,long)",
                      targetLocation = "EXIT",
                      condition = "$2==-1",
                      action = "debug(\"<<<signalling second openOutputStream.\"); "

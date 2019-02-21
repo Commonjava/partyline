@@ -134,7 +134,7 @@ public class InfinispanGLM
         }
         catch ( InterruptedException e )
         {
-            ;
+            logger.trace( "Sleep interrupted: {}", e );
         }
     }
 

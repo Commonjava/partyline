@@ -135,18 +135,18 @@ public class Partyline
 
     public Partyline()
     {
-        this( new RandomAccessJFS() );
+        this( new RandomAccessJFS(), null );
     }
 
     public Partyline( GlobalLockManager globalLockManager ) // for cluster env
     {
-        this( new RandomAccessJFS( globalLockManager ) );
+        this( new RandomAccessJFS( globalLockManager ), globalLockManager );
     }
 
-    public Partyline( JoinableFilesystem filesystem )
+    private Partyline( JoinableFilesystem filesystem, GlobalLockManager globalLockManager )
     {
         this.timer = new Timer( true );
-        this.locks = new FileTree( filesystem );
+        this.locks = new FileTree( filesystem, globalLockManager );
     }
 
     FileTree getFileTree()
