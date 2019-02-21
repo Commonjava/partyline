@@ -43,6 +43,7 @@ import static org.apache.commons.lang.StringUtils.join;
 
 import static org.commonjava.util.partyline.lock.LockLevel.read;
 import static org.commonjava.util.partyline.lock.local.LocalLockOwner.getLockReservationName;
+import static org.commonjava.util.partyline.util.FileTreeUtils.forAll;
 
 /**
  * File manager that attempts to manage read/write locks in the presence of output streams that will allow simultaneous access to read the content
@@ -212,7 +213,7 @@ public class Partyline
     {
         final Map<File, CharSequence> active = new HashMap<>();
 
-        locks.forAll( ( jf ) -> active.put( new File( jf.getPath() ), jf.reportOwnership() ));
+        forAll( locks.getUnmodifiableEntryMap(), ( jf ) -> active.put( new File( jf.getPath() ), jf.reportOwnership() ));
 
         return active;
     }

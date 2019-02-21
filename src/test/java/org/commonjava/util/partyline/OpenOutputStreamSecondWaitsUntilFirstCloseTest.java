@@ -43,8 +43,8 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
 {
 
     /**
-     * Test aligns two concurrent writing tasks as second starts until first close, operated on the same file verified to be available, this setup an script of events for
-     * one single file, where:
+     * Test aligns two concurrent writing tasks as second starts until first close, operated on the same file
+     * verified to be available, this setup an script of events for one single file, where:
      * <ol>
      *     <li>Multiple writes happened as a specific sequence</li>
      *     <li>Has no simultaneous Writing lock on the same file</li>
@@ -53,8 +53,8 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
      */
     @BMRules( rules = {
             // wait for first openOutputStream call to exit
-            @BMRule( name = "second openOutputStream", targetClass = "JoinableFileManager",
-                     targetMethod = "openOutputStream",
+            @BMRule( name = "second openOutputStream", targetClass = "Partyline",
+                     targetMethod = "openOutputStream(File)",
                      targetLocation = "ENTRY",
                      condition = "$2==100",
                      action = "debug(\">>>wait for service enter first openOutputStream.\");"
@@ -62,8 +62,8 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
                              + "debug(\"<<<proceed with second openOutputStream.\")" ),
 
             // setup the trigger to signal second openOutputStream when the first openOutputStream exits
-            @BMRule( name = "first openOutputStream", targetClass = "JoinableFileManager",
-                     targetMethod = "openOutputStream",
+            @BMRule( name = "first openOutputStream", targetClass = "Partyline",
+                     targetMethod = "openOutputStream(File)",
                      targetLocation = "EXIT",
                      condition = "$2==-1",
                      action = "debug(\"<<<signalling second openOutputStream.\"); "
