@@ -110,23 +110,16 @@ public class FileBlock
         return data;
     }
 
-    byte[] getByteArray()
+    private byte[] getByteArray()
     {
-        if ( data.hasArray() )
-        {
-            return data.array();
-        }
-        else
-        {
-            byte[] arr = new byte[data.capacity()];
-            // We need to try to preserve the position/limit of data
-            int originalPosition = data.position();
-            int originalLimit = data.limit();
-            data.get( arr, 0, data.limit() );
-            data.position( originalPosition );
-            data.limit( originalLimit );
-            return arr;
-        }
+        byte[] arr = new byte[data.capacity()];
+        // We need to try to preserve the position/limit of data
+        int originalPosition = data.position();
+        int originalLimit = data.limit();
+        data.get( arr, 0, data.limit() );
+        data.position( originalPosition );
+        data.limit( originalLimit );
+        return arr;
     }
 
     public String getFileID()
@@ -146,7 +139,7 @@ public class FileBlock
 
     public boolean hasRemaining()
     {
-        return ( data.position() == data.limit() );
+        return ( data.position() < data.limit() );
     }
 
     public void writeToBuffer( Byte b )
@@ -160,11 +153,7 @@ public class FileBlock
         out.writeInt( blockSize );
         out.writeUTF( fileID );
         out.writeUTF( blockID );
-        if ( nextBlockID == null )
-        {
-            nextBlockID = "null";
-        }
-        out.writeUTF( nextBlockID );
+        out.writeObject( nextBlockID );
         out.writeObject( createdDate );
         out.writeObject( lastModifiedDate );
         out.writeBoolean( eof );
@@ -179,11 +168,7 @@ public class FileBlock
         blockSize = in.readInt();
         fileID = in.readUTF();
         blockID = in.readUTF();
-        nextBlockID = in.readUTF();
-        if ( nextBlockID == "null" )
-        {
-            nextBlockID = null;
-        }
+        nextBlockID = (String) in.readObject();
         createdDate = (Date) in.readObject();
         lastModifiedDate = (Date) in.readObject();
         eof = in.readBoolean();
@@ -193,5 +178,6 @@ public class FileBlock
         in.read( buffer, 0, bufferLimit );
         data.allocate( bufferCapacity );
         data = ByteBuffer.wrap( buffer );
+        data.limit( bufferLimit );
     }
 }
