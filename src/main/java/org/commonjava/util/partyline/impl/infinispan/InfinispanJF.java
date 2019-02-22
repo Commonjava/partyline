@@ -400,14 +400,10 @@ public final class InfinispanJF
         @Override
         public void flush() throws IOException
         {
-            synchronized ( InfinispanJF.this ) // TODO: why we need this?  'closed' is a local field
+            if ( closed )
             {
-                if ( closed )
-                {
-                    throw new IOException( "Cannot write to closed stream!" );
-                }
+                throw new IOException( "Cannot write to closed stream!" );
             }
-
             doFlush( false );
         }
 
@@ -546,38 +542,31 @@ public final class InfinispanJF
         @Override
         public int read() throws IOException
         {
-            synchronized ( InfinispanJF.this ) // TODO: why need it ??? 'closed' is a local field
+            if ( closed )
             {
-                if ( closed )
-                {
-                    throw new IOException( "Joint: " + jointIdx + "(" + originalThreadName
-                                                           + "): Cannot read from closed stream!" );
-                }
-
+                throw new IOException( "Joint: " + jointIdx + "(" + originalThreadName
+                                                       + "): Cannot read from closed stream!" );
             }
-            if ( block.hasRemaining() ) // TODO: seems it should be '!hasRemaining'
-            {
-                // We're done reading the buffer - check for EOF
-                if ( block.isEOF() )
-                {
-                    return -1;
-                }
-                try
-                {
-                    // Get the next block
-                    FileBlock next = filesystem.getNextBlock( block, metadata );
-                    block = next;
-                    // getNextBlock can return null
-                    if ( block == null )
-                    {
-                        return -1;
-                    }
-                }
-                catch ( final IOException e )
-                {
-                    return -1;
-                }
 
+            // We're done reading the buffer - check for EOF
+            if ( block.isEOF() )
+            {
+                return -1;
+            }
+            try
+            {
+                // Get the next block
+                FileBlock next = filesystem.getNextBlock( block, metadata );
+                block = next;
+                // getNextBlock can return null
+                if ( block == null )
+                {
+                    return -1;
+                }
+            }
+            catch ( final IOException e )
+            {
+                return -1;
             }
 
             final int result = block.readFromBuffer(); // TODO: isn't the block shared? reading from buffer would change the position.
