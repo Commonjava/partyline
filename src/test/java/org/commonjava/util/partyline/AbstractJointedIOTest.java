@@ -15,9 +15,13 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.SignallingLocker;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
+
+import java.io.File;
+import java.io.IOException;
 
 public abstract class AbstractJointedIOTest
 {
@@ -30,8 +34,17 @@ public abstract class AbstractJointedIOTest
     @Rule
     public TestName name = new TestName();
 
+    private final SignallingLocker<String> locker = new SignallingLocker<>();
+
+
     protected int readers = 0;
 
     protected int writers = 0;
+
+    protected JoinableFile newFile( final File f, final LockOwner lockOwner, final boolean doOutput )
+            throws IOException
+    {
+        return new JoinableFile( f, lockOwner, null, doOutput, locker );
+    }
 
 }

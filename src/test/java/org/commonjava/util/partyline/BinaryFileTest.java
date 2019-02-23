@@ -38,7 +38,7 @@ import static org.junit.Assert.fail;
  * Date: 9/3/16
  * Time: 10:46 PM
  */
-public class BinaryFileTest {
+public class BinaryFileTest extends AbstractJointedIOTest {
 
     @Rule
     public TemporaryFolder temp = new TemporaryFolder();
@@ -70,7 +70,7 @@ public class BinaryFileTest {
 
         File binaryFile = temp.newFile( "binary-file.bin" );
         ReentrantLock lock = new ReentrantLock();
-        JoinableFile jf = new JoinableFile( binaryFile, new LockOwner( binaryFile.getAbsolutePath(),
+        JoinableFile jf = newFile( binaryFile, new LockOwner( binaryFile.getAbsolutePath(),
                                                                          name.getMethodName(), LockLevel.write ), true );
         OutputStream jos = jf.getOutputStream();
         InputStream actual = jf.joinStream();

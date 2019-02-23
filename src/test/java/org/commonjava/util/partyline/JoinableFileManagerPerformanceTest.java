@@ -15,6 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.SignallingLocker;
 import org.junit.Test;
 
 import java.io.File;
@@ -42,7 +43,10 @@ public class JoinableFileManagerPerformanceTest
 
         String content = createBigFileContent();
 
-        JoinableFile jf = new JoinableFile( jft, new LockOwner( jft.getPath(), "write test", LockLevel.write ), true);
+        JoinableFile jf =
+                new JoinableFile( jft, new LockOwner( jft.getPath(), "write test", LockLevel.write ), null, true,
+                                  new SignallingLocker<String>() );
+
         long start = System.currentTimeMillis();
         System.out.println("Opening output...");
         try(OutputStream out = jf.getOutputStream())
