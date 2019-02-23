@@ -16,7 +16,7 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.IOUtils;
-import org.commonjava.cdi.util.weft.ContextSensitiveExecutorService;
+import org.commonjava.cdi.util.weft.PoolWeftExecutorService;
 import org.commonjava.cdi.util.weft.ThreadContext;
 import org.commonjava.util.partyline.fixture.ThreadDumper;
 import org.junit.Before;
@@ -33,15 +33,13 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
@@ -58,7 +56,8 @@ public class ManyReadersWithPreExistingWriterTest
 
     private static final int ITERATIONS = 2;
 
-    private ExecutorService executor = new ContextSensitiveExecutorService( Executors.newCachedThreadPool() );
+    private ExecutorService executor = new PoolWeftExecutorService( "test",
+                                                                    (ThreadPoolExecutor) Executors.newCachedThreadPool() );
 
     private final JoinableFileManager mgr = new JoinableFileManager();
 

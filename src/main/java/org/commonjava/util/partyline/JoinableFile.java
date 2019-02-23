@@ -15,6 +15,7 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.SignallingLocker;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,15 +27,16 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.commonjava.util.partyline.ExceptionUtils.handleError;
 
 /**
  * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
@@ -63,6 +65,8 @@ public final class JoinableFile
 {
     private static final int CHUNK_SIZE = 1024 * 1024; // 1mb
 
+    private final Logger logger = LoggerFactory.getLogger( getClass() );
+
     private final FileChannel channel;
 
 //    private final FileLock fileLock;
@@ -85,22 +89,22 @@ public final class JoinableFile
 
     private final LockOwner owner;
 
-    private final FileOperationLock opLock;
+    private final SignallingLocker locker;
 
-    /**
-     * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
-     * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
-     * instances.
-     * <br/>
-     *
-     * Initialize the {@link JoinableOutputStream} and {@link ByteBuffer} that will buffer content before sending it on
-     * to the channel (in the {@link JoinableOutputStream#flush()} method).
-     */
-    JoinableFile( final File target, final LockOwner owner, boolean doOutput )
-            throws IOException
-    {
-        this( target, owner, null, doOutput, new FileOperationLock() );
-    }
+//    /**
+//     * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
+//     * the {@link FileChannel} that will be used to write content and map sections of the written file for reading in associated {@link JoinInputStream}
+//     * instances.
+//     * <br/>
+//     *
+//     * Initialize the {@link JoinableOutputStream} and {@link ByteBuffer} that will buffer content before sending it on
+//     * to the channel (in the {@link JoinableOutputStream#flush()} method).
+//     */
+//    JoinableFile( final File target, final LockOwner owner, boolean doOutput )
+//            throws IOException
+//    {
+//        this( target, owner, null, doOutput, new FileOperationLock() );
+//    }
 
     /**
      * Create any parent directories if necessary, then open the {@link RandomAccessFile} that will receive content on this stream. From that, init
@@ -113,18 +117,19 @@ public final class JoinableFile
      * If callbacks are available, use these to signal to a manager instance when the stream is flushed and when
      * the last joined input stream (or this stream, if there are none) closes.
      */
-    JoinableFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput, FileOperationLock opLock )
+    JoinableFile( final File target, final LockOwner owner, final StreamCallbacks callbacks, boolean doOutput,
+                  SignallingLocker locker )
             throws IOException
     {
         this.owner = owner;
         this.path = target.getPath();
         this.callbacks = callbacks;
-        this.opLock = opLock;
+        this.locker = locker;
 
         target.getParentFile().mkdirs();
 
         Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.trace( "Trying to initialize JoinableFile to: {} using operation lock:\n\n{}", target, opLock );
+        logger.trace( "Trying to initialize JoinableFile to: {}", target );
         try
         {
             if ( target.isDirectory() )
@@ -133,7 +138,7 @@ public final class JoinableFile
                 output = null;
                 randomAccessFile = null;
                 channel = null;
-//                fileLock = null;
+                //                fileLock = null;
                 joinable = false;
             }
             else if ( doOutput )
@@ -142,7 +147,7 @@ public final class JoinableFile
                 output = new JoinableOutputStream();
                 randomAccessFile = new RandomAccessFile( target, "rws" );
                 channel = randomAccessFile.getChannel();
-//                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
+                //                fileLock = channel.lock( 0L, Long.MAX_VALUE, false );
             }
             else
             {
@@ -152,12 +157,13 @@ public final class JoinableFile
                 flushed.set( target.length() );
                 randomAccessFile = new RandomAccessFile( target, "r" );
                 channel = randomAccessFile.getChannel();
-//                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
+                //                fileLock = channel.lock( 0L, Long.MAX_VALUE, true );
             }
         }
         catch ( OverlappingFileLockException e )
         {
-            throw new IOException( "Cannot lock file: " + target + ". Reason: " + e.getMessage() + "\nLocked by: " + owner.getLockInfo(), e );
+            throw new IOException( "Cannot lock file: " + target + ". Reason: " + e.getMessage() + "\nLocked by: "
+                                           + owner.getLockInfo(), e );
         }
     }
 
@@ -189,56 +195,73 @@ public final class JoinableFile
     InputStream joinStream()
             throws IOException, InterruptedException
     {
-        return lockAnd( (lock)->{
+        AtomicReference<Exception> error = new AtomicReference<>();
+
+        InputStream stream = (InputStream) locker.lockAnd( path, ( p, lock ) -> {
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
-                throw new IOException( "JoinableFile is not accepting join() operations. (" +
-                                               ( channel == null ?
-                                                       "It's a locked directory" :
-                                                       "It's in the process of closing." ) + ")" );
+                error.set( new IOException( "JoinableFile is not accepting join() operations. (" + ( channel == null ?
+                        "It's a locked directory" :
+                        "It's in the process of closing." ) + ")" ) );
+
+                return null;
             }
 
-            JoinInputStream result = new JoinInputStream( inputs.size() );
-            inputs.put( result.hashCode(), result );
-
-            Logger logger = LoggerFactory.getLogger( getClass() );
-            logger.debug( "JOIN: {} (new joint count: {})", Thread.currentThread().getName(), inputs.size() );
-
-            return result;
-        });
-    }
-
-    /**
-     * Lock the {@link java.util.concurrent.locks.ReentrantLock} instance embedded in this {@link JoinableFile}, then
-     * execute the given operation. This prevents more than one thread from executing operations against state associated
-     * with the file this {@link JoinableFile} manages.
-     *
-     * @param op The operation to execute, once the operation lock is acquired
-     * @param <T> The result type of the given operation
-     * @return The result of operation execution
-     * @throws IOException
-     * @throws InterruptedException
-     *
-     * @see FileTree#withOpLock(File, LockedFileOperation) for associated logic
-     */
-    private <T> T lockAnd(LockedFileOperation<T> op)
-            throws IOException, InterruptedException
-    {
-        boolean locked = false;
-        try
-        {
-            locked = opLock.lock();
-            return op.execute( opLock );
-        }
-        finally
-        {
-            if ( locked )
+            try
             {
-                opLock.unlock();
+                JoinInputStream result = new JoinInputStream( inputs.size() );
+                inputs.put( result.hashCode(), result );
+
+                Logger logger = LoggerFactory.getLogger( getClass() );
+                logger.debug( "JOIN: {} (new joint count: {})", Thread.currentThread().getName(), inputs.size() );
+
+                return result;
             }
-        }
+            catch ( IOException e )
+            {
+                error.set( e );
+            }
+
+            return null;
+        } );
+
+        handleError( error, "joinStream" );
+
+        return stream;
     }
+
+//    /**
+//     * Lock the {@link java.util.concurrent.locks.ReentrantLock} instance embedded in this {@link JoinableFile}, then
+//     * execute the given operation. This prevents more than one thread from executing operations against state associated
+//     * with the file this {@link JoinableFile} manages.
+//     *
+//     * @param op The operation to execute, once the operation lock is acquired
+//     * @param <T> The result type of the given operation
+//     * @return The result of operation execution
+//     * @throws IOException
+//     * @throws InterruptedException
+//     *
+//     * @see FileTree#withOpLock(File, LockedFileOperation) for associated logic
+//     */
+//    private <T> T lockAnd(LockedFileOperation<T> op)
+//            throws IOException, InterruptedException
+//    {
+//        boolean locked = false;
+//        AtomicReference<Exception> error = new AtomicReference<>();
+//        try
+//        {
+//            locked = opLock.lock();
+//            return op.execute( this.path, error, opLock );
+//        }
+//        finally
+//        {
+//            if ( locked )
+//            {
+//                opLock.unlock();
+//            }
+//        }
+//    }
 
     /**
      * Write locks happen when either a directory is locked, or the file was locked with doOutput == true.
@@ -258,40 +281,60 @@ public final class JoinableFile
     public void close()
             throws IOException
     {
-        try
-        {
-            lockAnd( (lock)->{
-                Logger logger = LoggerFactory.getLogger( getClass() );
-                if ( closed )
-                {
-                    logger.trace( "close() called, but is already closed." );
-                    return null;
-                }
-                logger.trace( "close() called, marking as closed." );
+        AtomicReference<Exception> error = new AtomicReference<>();
+        locker.lockAnd( path, (p, lock)->{
+            if ( closed )
+            {
+                logger.trace( "close() called, but is already closed." );
+                return null;
+            }
+            logger.trace( "close() called, marking as closed." );
 
-                closed = true;
+            closed = true;
 
-                if ( output != null && !output.isClosed() )
+            if ( output != null && !output.isClosed() )
+            {
+                logger.trace( "Closing output" );
+                try
                 {
-                    logger.trace( "Closing output" );
                     output.close();
                 }
-
-                logger.trace( "joint count is: {}.", inputs.size() );
-                if ( channel == null || inputs.isEmpty() )
+                catch ( IOException e )
                 {
-                    logger.trace( "Joints closed, and output is closed...really closing." );
+                    error.set( e );
+                }
+            }
+
+            if ( error.get() != null )
+            {
+                return null;
+            }
+
+            logger.trace( "joint count is: {}.", inputs.size() );
+            if ( channel == null || inputs.isEmpty() )
+            {
+                logger.trace( "Joints closed, and output is closed...really closing." );
+                try
+                {
                     reallyClose();
                     owner.clearLocks();
                 }
+                catch ( IOException e )
+                {
+                    error.set( e );
+                }
+            }
 
-                return null;
-            } );
+            return null;
+        } );
+
+        try
+        {
+            handleError( error, "close: " + path );
         }
         catch ( InterruptedException e )
         {
-            Logger logger = LoggerFactory.getLogger( getClass() );
-            logger.warn( "Interrupted while closing: {}", getPath() );
+            logger.debug( "SHOULD NOT HAPPEN: Interrupted while closing: " + path, e );
         }
     }
 
@@ -304,74 +347,96 @@ public final class JoinableFile
         Logger logger = LoggerFactory.getLogger( getClass() );
         logger.trace( "Really closing JoinableFile: {}", path );
 
-        try
-        {
-            lockAnd((lock)->{
-                if ( channel != null )
+        AtomicReference<Exception> error = new AtomicReference<>();
+        locker.lockAnd( path, (p, lock)->{
+            if ( channel != null )
+            {
+                try
                 {
                     channel.force( true );
                 }
-
-                if ( callbacks != null )
+                catch ( IOException e )
                 {
-                    logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
-                    callbacks.beforeClose();
+                    error.set( e );
                 }
+            }
 
-                joinable = false;
+            if ( error.get() != null ) return null;
 
-                if ( output != null )
+            if ( callbacks != null )
+            {
+                logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
+                callbacks.beforeClose();
+            }
+
+            joinable = false;
+
+            if ( output != null )
+            {
+                logger.trace( "Setting length of: {} to written length: {}", path, flushed );
+                try
                 {
-                    logger.trace( "Setting length of: {} to written length: {}", path, flushed );
                     randomAccessFile.setLength( flushed.get() );
                     /* channel.force() is not enough to force system cached data to be written to underlying
                          device if the file does not reside on a local device (like NFS) */
                     randomAccessFile.getFD().sync();
                 }
-
-                // if the channel is null, this is a directory lock.
-                if ( channel != null )
+                catch ( IOException e )
                 {
-                    logger.trace( "Closing underlying channel / random-access file..." );
-                    try
+                    error.set( e );
+                }
+            }
+
+            if ( error.get() != null ) return null;
+
+            // if the channel is null, this is a directory lock.
+            if ( channel != null )
+            {
+                logger.trace( "Closing underlying channel / random-access file..." );
+                try
+                {
+                    if ( channel.isOpen() )
                     {
-                        if ( channel.isOpen() )
-                        {
 //                            fileLock.release();
-                            channel.close();
-                        }
-                        else
-                        {
-                            logger.trace( "Channel was not open..." );
-                        }
-
-                        randomAccessFile.close();
+                        channel.close();
                     }
-                    catch ( ClosedChannelException e )
+                    else
                     {
-                        logger.debug( "Lock release failed on closed channel.", e );
+                        logger.trace( "Channel was not open..." );
                     }
+
+                    randomAccessFile.close();
                 }
-                else
+                catch ( IOException e )
                 {
-                    logger.trace( "Channel already closed..." );
+                    logger.debug( "Failed to close channel or random-access file: " + path , e );
+                    error.set( e );
                 }
+            }
+            else
+            {
+                logger.trace( "Channel already closed..." );
+            }
 
-                logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
-                              Thread.currentThread().getName() );
+            logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
+                          Thread.currentThread().getName() );
 
-                if ( callbacks != null )
-                {
-                    logger.trace( "calling closed() on callbacks: {}", callbacks );
-                    callbacks.closed();
-                }
+            if ( callbacks != null )
+            {
+                logger.trace( "calling closed() on callbacks: {}", callbacks );
+                callbacks.closed();
+            }
 
-                return null;
-            });
+            return null;
+        });
+
+        try
+        {
+            handleError( error, "reallyClose: " + path );
         }
         catch ( InterruptedException e )
         {
-            logger.error( "Interrupted while closing: " + path, e );
+            logger.debug( "SHOULD NOT HAPPEN: Interrupted while reallyClosing: " + path, e );
         }
     }
 
@@ -382,35 +447,44 @@ public final class JoinableFile
     private void jointClosed( JoinInputStream input, String originalThreadName )
             throws IOException
     {
-        try
-        {
-            lockAnd( (lock)->{
-                inputs.remove( input.hashCode() );
+        AtomicReference<Exception> error = new AtomicReference<>();
+        locker.lockAnd( path, (p, lock)->{
+            inputs.remove( input.hashCode() );
 
-                Logger logger = LoggerFactory.getLogger( getClass() );
-                logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
-                if ( inputs.isEmpty() )
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
+            if ( inputs.isEmpty() )
+            {
+                if ( output == null || output.isClosed() )
                 {
-                    if ( output == null || output.isClosed() )
+                    logger.trace( "All input joint closed, and output is missing or closed. Really closing." );
+                    closed = true;
+                    try
                     {
-                        logger.trace( "All input joint closed, and output is missing or closed. Really closing." );
-                        closed = true;
                         reallyClose();
                     }
+                    catch ( IOException e )
+                    {
+                        error.set( e );
+                    }
                 }
-                else
-                {
-                    owner.unlock( labelFor( false, originalThreadName ) );
+            }
+            else
+            {
+                owner.unlock( labelFor( false, originalThreadName ) );
 //                    owner.unlock( originalThreadName );
-                }
+            }
 
-                return null;
-            } );
+            return null;
+        } );
+
+        try
+        {
+            handleError( error, "joinClosed: " + input.jointIdx + " on: " + path );
         }
         catch ( InterruptedException e )
         {
-            Logger logger = LoggerFactory.getLogger( getClass() );
-            logger.warn( "Interrupted while closing reader joint of: {}", getPath() );
+            logger.debug( "SHOULD NOT HAPPEN: Interrupted while jointClosing: " + path, e );
         }
     }
 

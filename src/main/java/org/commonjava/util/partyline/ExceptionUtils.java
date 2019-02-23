@@ -15,19 +15,33 @@
  */
 package org.commonjava.util.partyline;
 
-import org.commonjava.cdi.util.weft.SignallingLock;
-import org.commonjava.cdi.util.weft.SignallingLockOperation;
-
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiFunction;
 
-/**
- * Created by jdcasey on 12/8/16.
- */
-@FunctionalInterface
-public interface LockedFileOperation<T>
+class ExceptionUtils
 {
-    T apply( String path, AtomicReference<Exception> error, SignallingLock opLock );
+    static void handleError( AtomicReference<Exception> error, String label )
+            throws IOException, InterruptedException
+    {
+        Exception e = error.get();
+        if ( e != null )
+        {
+            if ( e instanceof IOException )
+            {
+                throw (IOException) e;
+            }
 
+            if ( e instanceof InterruptedException )
+            {
+                throw (InterruptedException) e;
+            }
+
+            if ( e instanceof RuntimeException )
+            {
+                throw (RuntimeException) e;
+            }
+
+            throw new IOException( "Operation failed: " + label, e );
+        }
+    }
 }
