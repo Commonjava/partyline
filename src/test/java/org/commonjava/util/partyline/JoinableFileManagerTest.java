@@ -19,6 +19,8 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.cdi.util.weft.ThreadContext;
 import org.commonjava.util.partyline.lock.LockLevel;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -56,7 +58,19 @@ public class JoinableFileManagerTest
     @Rule
     public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
-    private final Partyline mgr = new Partyline();
+    private Partyline mgr;
+
+    @Before
+    public void init()
+    {
+        mgr = getPartylineInstance();
+    }
+
+    @After
+    public void clean()
+    {
+        stopCacheManager();
+    }
 
     @Test
     public void lockAndUnlockTwiceInSequenceFromOneThread()

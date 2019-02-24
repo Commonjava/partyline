@@ -84,6 +84,10 @@ public class InfinispanGLM
             {
                 sleepQuietly( 100 );
             }
+            else
+            {
+                return locked;
+            }
             cur = currentTimeMillis();
         }
         return false;

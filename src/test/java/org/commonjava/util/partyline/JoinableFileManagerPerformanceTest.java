@@ -20,6 +20,8 @@ import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.File;
@@ -35,7 +37,20 @@ import static org.junit.Assert.fail;
 public class JoinableFileManagerPerformanceTest
         extends AbstractJointedIOTest
 {
-    private final Partyline mgr = new Partyline();
+
+    private Partyline mgr;
+
+    @Before
+    public void init()
+    {
+        mgr = getPartylineInstance();
+    }
+
+    @After
+    public void clean()
+    {
+        stopCacheManager();
+    }
 
     @Test
     public void bigFileWritePerformanceTest()

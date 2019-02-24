@@ -55,6 +55,7 @@ import static org.junit.Assert.fail;
  * {@link Partyline#cleanupCurrentThread()} call.
  */
 public class ClearCurrentThreadWithAnotherThreadReadingTest
+                extends AbstractJointedIOTest
 {
     @ClassRule
     public static TestRule timeout = timeoutRule( 4, TimeUnit.SECONDS );
@@ -101,7 +102,7 @@ public class ClearCurrentThreadWithAnotherThreadReadingTest
         CountDownLatch t2StartLatch = new CountDownLatch( 1 );
         CountDownLatch t1CleanupLatch = new CountDownLatch( 1 );
 
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
 
         final String content = "This is a test";
         final File file = temp.newFile();

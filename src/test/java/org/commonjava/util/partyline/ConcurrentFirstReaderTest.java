@@ -93,7 +93,7 @@ public class ConcurrentFirstReaderTest
         FileUtils.writeByteArrayToFile( f, bytes );
 
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
 
         manager.startReporting( 5000, 5000 );
 

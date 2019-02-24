@@ -15,12 +15,24 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.util.partyline.lock.global.GlobalLockOwner;
+import org.commonjava.util.partyline.lock.global.impl.InfinispanGLM;
+import org.infinispan.Cache;
+import org.infinispan.configuration.global.GlobalConfigurationBuilder;
+import org.infinispan.manager.DefaultCacheManager;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
 
 public abstract class AbstractJointedIOTest
 {
+    private final Logger logger = LoggerFactory.getLogger( getClass() );
 
     public static final int COUNT = 2000;
 
@@ -34,4 +46,38 @@ public abstract class AbstractJointedIOTest
 
     protected int writers = 0;
 
+    protected DefaultCacheManager manager;
+
+    protected Partyline getPartylineInstance()
+    {
+        String local = (String) System.getProperty( "partyline.local" );
+        if ( local == null )
+        {
+            // by default we run global test
+            try
+            {
+                manager = new DefaultCacheManager( "infinispan.xml" );
+            }
+            catch ( IOException e )
+            {
+                logger.error( "Load infinispan.xml failed, use 'new Partyline()'", e );
+                return null;
+            }
+
+            Cache<String, GlobalLockOwner> partylineLocksCache = manager.getCache( "partylineLocks" );
+
+            logger.debug( "With partylineLocksCache, txManager: {}",
+                          partylineLocksCache.getAdvancedCache().getTransactionManager() );
+            return new Partyline( new InfinispanGLM( partylineLocksCache ) );
+        }
+        else
+        {
+            return new Partyline();
+        }
+    }
+
+    protected void stopCacheManager()
+    {
+        manager.stop();
+    }
 }

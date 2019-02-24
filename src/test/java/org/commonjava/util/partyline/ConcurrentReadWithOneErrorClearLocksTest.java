@@ -73,7 +73,7 @@ public class ConcurrentReadWithOneErrorClearLocksTest
         CountDownLatch readBeginLatch = new CountDownLatch( 3 );
         CountDownLatch readEndLatch = new CountDownLatch( 3 );
 
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
         manager.startReporting( 5000, 5000 );
         final long start = System.currentTimeMillis();
 

@@ -36,7 +36,7 @@ public class VerifyReportingDaemonWorksTest
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 1 );
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
 
         final File f = temp.newFile();
         final String first = "first";
