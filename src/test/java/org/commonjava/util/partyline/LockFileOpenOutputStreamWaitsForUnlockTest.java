@@ -49,9 +49,9 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
     @BMRules( rules = {
             // wait for lockUnlock call to exit
             @BMRule( name = "openOutputStream", targetClass = "Partyline",
-                     targetMethod = "openOutputStream",
+                     targetMethod = "openOutputStream(File,long)",
                      targetLocation = "ENTRY",
-                     condition = "$2==-1",
+                     //condition = "$2==-1",
                      action = "debug(\">>>wait for service enter lockUnlock.\");" + "waitFor(\"lockUnlock\");"
                              + "debug(\"<<<proceed with openOutputStream.\")" ),
 
@@ -59,7 +59,7 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
             @BMRule( name = "lockUnlock", targetClass = "Partyline",
                      targetMethod = "unlock",
                      targetLocation = "EXIT",
-                     condition = "$2.equals(\"test\")",
+                     //condition = "$2.equals(\"test\")",
                      action = "debug(\"<<<signalling openOutputStream.\"); " + "signalWake(\"lockUnlock\", true);"
                              + "debug(\"<<<signalled openOutputStream.\")" ) } )
 
@@ -95,9 +95,6 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
             {
                 final boolean locked = manager.lock( f, 100, LockLevel.write, "test" );
                 assertThat( locked, equalTo( true ) );
-
-                Thread.sleep( 100 );
-
                 assertThat( manager.unlock( f ), equalTo( true ) );
             }
             catch ( final InterruptedException e )
