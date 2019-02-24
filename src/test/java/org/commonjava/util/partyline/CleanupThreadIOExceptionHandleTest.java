@@ -53,7 +53,7 @@ public class CleanupThreadIOExceptionHandleTest
     @Ignore
     public void run() throws Exception
     {
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
         ThreadContext context = ThreadContext.getContext( true );
         final File f = temp.newFile( "test-byteman.txt" );
         FileUtils.write( f, "This is an IO Exception byteman test" );

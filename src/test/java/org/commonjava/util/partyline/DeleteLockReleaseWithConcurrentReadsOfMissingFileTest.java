@@ -58,7 +58,7 @@ public class DeleteLockReleaseWithConcurrentReadsOfMissingFileTest
         CountDownLatch endReadLatch = new CountDownLatch( 3 );
         CountDownLatch endDeleteLatch = new CountDownLatch( 1 );
 
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
 
         execs.execute( writer( manager, f, masterLatch, endReadLatch ) );
 

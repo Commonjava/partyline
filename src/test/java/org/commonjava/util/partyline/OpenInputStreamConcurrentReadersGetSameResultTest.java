@@ -75,7 +75,7 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
 
         final File f = temp.newFile();
         String str = "This is a test";

@@ -26,14 +26,8 @@ import org.junit.runner.RunWith;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
@@ -55,9 +49,9 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
     @BMRules( rules = {
             // wait for lockUnlock call to exit
             @BMRule( name = "openOutputStream", targetClass = "Partyline",
-                     targetMethod = "openOutputStream",
+                     targetMethod = "openOutputStream(File,long)",
                      targetLocation = "ENTRY",
-                     condition = "$2==-1",
+                     //condition = "$2==-1",
                      action = "debug(\">>>wait for service enter lockUnlock.\");" + "waitFor(\"lockUnlock\");"
                              + "debug(\"<<<proceed with openOutputStream.\")" ),
 
@@ -65,7 +59,7 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
             @BMRule( name = "lockUnlock", targetClass = "Partyline",
                      targetMethod = "unlock",
                      targetLocation = "EXIT",
-                     condition = "$2.equals(\"test\")",
+                     //condition = "$2.equals(\"test\")",
                      action = "debug(\"<<<signalling openOutputStream.\"); " + "signalWake(\"lockUnlock\", true);"
                              + "debug(\"<<<signalled openOutputStream.\")" ) } )
 
@@ -74,7 +68,7 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
     public void run()
             throws Exception
     {
-        final Partyline manager = new Partyline();
+        final Partyline manager = getPartylineInstance();
 
         final File f = temp.newFile( "test.txt" );
         final String lockUnlock = "lock-clearLocks";
@@ -101,9 +95,6 @@ public class LockFileOpenOutputStreamWaitsForUnlockTest
             {
                 final boolean locked = manager.lock( f, 100, LockLevel.write, "test" );
                 assertThat( locked, equalTo( true ) );
-
-                Thread.sleep( 100 );
-
                 assertThat( manager.unlock( f ), equalTo( true ) );
             }
             catch ( final InterruptedException e )
