@@ -48,8 +48,7 @@ public class LocalLockManager
      * @throws IOException
      * @throws InterruptedException
      */
-    public <T> T reentrantSynchronous( String path, ReentrantOperation<T> op )
-            throws IOException, InterruptedException
+    public <T> T reentrantSynchronous( String path, ReentrantOperation<T> op ) throws IOException, InterruptedException
     {
         ReentrantOperationLock opLock = null;
 
@@ -57,23 +56,23 @@ public class LocalLockManager
         {
             synchronized ( OPERATION_LOCKS_MUTEX )
             {
-                opLock = operationLocks.computeIfAbsent( path, k ->
-                {
+                opLock = operationLocks.computeIfAbsent( path, k -> {
                     ReentrantOperationLock lock = new ReentrantOperationLock();
-                    logger.trace( "Initializing new ReentrantSynchronousOperation: {} for path: {}", lock, path );
+                    logger.trace( "Initializing new opLock: {} for path: {}", lock, path );
                     return lock;
                 } );
-                logger.trace( "Using ReentrantSynchronousOperation: {} for path: {}", opLock, path );
+                logger.trace( "Using opLock: {} for path: {}", opLock, path );
+
+                if ( !opLock.lock() )
+                {
+                    throw new IOException(
+                                    "Failed to lock for: " + path + ", opLock: " + opLock + " (currently locked by: "
+                                                    + opLock.getLocker() + ")" );
+                }
             }
 
-            if ( !opLock.lock() )
-            {
-                throw new IOException(
-                        "Failed to acquire ReentrantSynchronousOperation lock for: " + path + " using opLock: " + opLock
-                                + " (currently locked by: " + opLock.getLocker() + ")" );
-            }
-
-            logger.trace( "Locked ReentrantSynchronousOperation: {} for path: {}. Proceeding with file operation.", opLock, path );
+            logger.trace( "Locked ReentrantSynchronousOperation: {} for path: {}. Proceeding with file operation.",
+                          opLock, path );
 
             return op.execute( opLock );
         }
@@ -102,12 +101,17 @@ public class LocalLockManager
     /**
      * This is invoked when the FileTree removes a fileEntry from entryMap. In this case, no one is using the lock anymore.
      * @param path
+     * @param opLock
      */
-    public void removeReentrantLock( String path )
+    public void removeReentrantLock( String path, ReentrantOperationLock opLock )
     {
         synchronized ( OPERATION_LOCKS_MUTEX )
         {
-            operationLocks.remove( path );
+            if ( !opLock.isLocked() )
+            {
+                logger.trace( "Remove lock {} for path {}", opLock, path );
+                operationLocks.remove( path );
+            }
         }
     }
 }

@@ -94,6 +94,11 @@ public final class ReentrantOperationLock
         }
     }
 
+    public boolean isLocked()
+    {
+        return lock.isLocked();
+    }
+
     public String getLocker()
     {
         return locker;
