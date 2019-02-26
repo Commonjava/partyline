@@ -160,7 +160,7 @@ public final class FileTree
 
                         if ( !entry.lockOwner.isLocked() )
                         {
-                            entryMap.remove( entry.name );
+                            removeEntryAndReentrantLock( entry.name );
                         }
 
                         opLock.signal();
@@ -196,6 +196,12 @@ public final class FileTree
         return false;
     }
 
+    private void removeEntryAndReentrantLock( String path )
+    {
+        entryMap.remove( path );
+        lockManager.removeReentrantLock( path );
+    }
+
     private boolean unlockAssociatedEntries( final FileEntry entry, final String label )
                     throws IOException
     {
@@ -224,7 +230,7 @@ public final class FileTree
 
             if ( !alsoLocked.lockOwner.isLocked() )
             {
-                entryMap.remove( alsoLocked.name );
+                removeEntryAndReentrantLock( alsoLocked.name );
             }
 
             alsoLocked = alsoLocked.alsoLocked;
@@ -261,7 +267,7 @@ public final class FileTree
 
                     unlockAssociatedEntries( entry, label );
 
-                    entryMap.remove( entry.name );
+                    removeEntryAndReentrantLock( entry.name );
 
                     opLock.signal();
                     logger.trace( "Unlock succeeded." );
@@ -586,7 +592,7 @@ public final class FileTree
                 }
             }
 
-            FileEntry entry = entryMap.remove( file.getAbsolutePath() );
+            removeEntryAndReentrantLock( file.getAbsolutePath() );
             opLock.signal();
 
             if ( file.exists() )
@@ -600,7 +606,7 @@ public final class FileTree
             }
             
             return true;
-        } ) == Boolean.TRUE;
+        } );
     }
 
     public boolean isLockedByCurrentThread( final File file )
