@@ -24,6 +24,7 @@ import org.commonjava.util.partyline.lock.global.GlobalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.slf4j.Logger;
@@ -33,7 +34,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -160,7 +160,7 @@ public final class FileTree
 
                         if ( !entry.lockOwner.isLocked() )
                         {
-                            entryMap.remove( entry.name );
+                            removeEntryAndReentrantLock( entry.name, opLock );
                         }
 
                         opLock.signal();
@@ -196,6 +196,15 @@ public final class FileTree
         return false;
     }
 
+    private void removeEntryAndReentrantLock( String path, ReentrantOperationLock opLock )
+    {
+        entryMap.remove( path );
+        if ( opLock != null )
+        {
+            lockManager.removeReentrantLock( path, opLock );
+        }
+    }
+
     private boolean unlockAssociatedEntries( final FileEntry entry, final String label )
                     throws IOException
     {
@@ -224,7 +233,7 @@ public final class FileTree
 
             if ( !alsoLocked.lockOwner.isLocked() )
             {
-                entryMap.remove( alsoLocked.name );
+                removeEntryAndReentrantLock( alsoLocked.name, null );
             }
 
             alsoLocked = alsoLocked.alsoLocked;
@@ -261,7 +270,7 @@ public final class FileTree
 
                     unlockAssociatedEntries( entry, label );
 
-                    entryMap.remove( entry.name );
+                    removeEntryAndReentrantLock( entry.name, opLock );
 
                     opLock.signal();
                     logger.trace( "Unlock succeeded." );
@@ -586,7 +595,7 @@ public final class FileTree
                 }
             }
 
-            FileEntry entry = entryMap.remove( file.getAbsolutePath() );
+            removeEntryAndReentrantLock( file.getAbsolutePath(), opLock );
             opLock.signal();
 
             if ( file.exists() )
@@ -600,7 +609,7 @@ public final class FileTree
             }
             
             return true;
-        } ) == Boolean.TRUE;
+        } );
     }
 
     public boolean isLockedByCurrentThread( final File file )

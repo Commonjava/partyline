@@ -19,7 +19,6 @@ import org.commonjava.util.partyline.spi.JoinableFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,7 +28,6 @@ public class LocalLockManager
     private final Map<String, ReentrantOperationLock> operationLocks = new ConcurrentHashMap<>();
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
-
 
     /**
      * Use a {@link java.util.concurrent.locks.ReentrantLock} keyed to the absolute path of the specified file to ensure
@@ -50,35 +48,31 @@ public class LocalLockManager
      * @throws IOException
      * @throws InterruptedException
      */
-    public <T> T reentrantSynchronous( String path, ReentrantOperation<T> op )
-            throws IOException, InterruptedException
+    public <T> T reentrantSynchronous( String path, ReentrantOperation<T> op ) throws IOException, InterruptedException
     {
         ReentrantOperationLock opLock = null;
 
         try
         {
-            synchronized ( operationLocks )
+            synchronized ( OPERATION_LOCKS_MUTEX )
             {
-                opLock = operationLocks.computeIfAbsent( path, k ->
-                {
+                opLock = operationLocks.computeIfAbsent( path, k -> {
                     ReentrantOperationLock lock = new ReentrantOperationLock();
-
-                    logger.trace( "Initializing new ReentrantSynchronousOperation: {} for path: {}", lock, path );
+                    logger.trace( "Initializing new opLock: {} for path: {}", lock, path );
                     return lock;
                 } );
+                logger.trace( "Using opLock: {} for path: {}", opLock, path );
 
-                logger.trace( "Using ReentrantSynchronousOperation: {} for path: {}", opLock, path );
-
+                if ( !opLock.lock() )
+                {
+                    throw new IOException(
+                                    "Failed to lock for: " + path + ", opLock: " + opLock + " (currently locked by: "
+                                                    + opLock.getLocker() + ")" );
+                }
             }
 
-            if ( !opLock.lock() )
-            {
-                throw new IOException(
-                        "Failed to acquire ReentrantSynchronousOperation lock for: " + path + " using opLock: " + opLock
-                                + " (currently locked by: " + opLock.getLocker() + ")" );
-            }
-
-            logger.trace( "Locked ReentrantSynchronousOperation: {} for path: {}. Proceeding with file operation.", opLock, path );
+            logger.trace( "Locked ReentrantSynchronousOperation: {} for path: {}. Proceeding with file operation.",
+                          opLock, path );
 
             return op.execute( opLock );
         }
@@ -98,4 +92,26 @@ public class LocalLockManager
         }
     }
 
+    /**
+     * Although operationLocks is a concurrent map, the computeIfAbsent only promise the atomicity of the lock-creating function.
+     * We still need a mutex to sync the adding/removing of locks.
+     */
+    private final Object OPERATION_LOCKS_MUTEX = new Object();
+
+    /**
+     * This is invoked when the FileTree removes a fileEntry from entryMap. In this case, no one is using the lock anymore.
+     * @param path
+     * @param opLock
+     */
+    public void removeReentrantLock( String path, ReentrantOperationLock opLock )
+    {
+        synchronized ( OPERATION_LOCKS_MUTEX )
+        {
+            if ( !opLock.isLocked() )
+            {
+                logger.trace( "Remove lock {} for path {}", opLock, path );
+                operationLocks.remove( path );
+            }
+        }
+    }
 }
