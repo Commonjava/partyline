@@ -15,10 +15,10 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.junit.After;
 import org.junit.Before;
@@ -64,7 +64,7 @@ public class JoinableFileManagerPerformanceTest
 
         JoinableFile jf =
                 new RandomAccessJFS().getFile( jft, new LocalLockOwner( jft.getPath(), "write test", LockLevel.write ),
-                                               null, true, new ReentrantOperationLock() );
+                                               null, true, new SignallingLock() );
         long start = System.currentTimeMillis();
         System.out.println("Opening output...");
         try(OutputStream out = jf.getOutputStream())

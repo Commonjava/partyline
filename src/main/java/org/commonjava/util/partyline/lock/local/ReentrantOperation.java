@@ -15,13 +15,8 @@
  */
 package org.commonjava.util.partyline.lock.local;
 
-import org.commonjava.util.partyline.PartylineException;
+import org.commonjava.cdi.util.weft.SignallingLock;
 
-import javax.transaction.HeuristicMixedException;
-import javax.transaction.HeuristicRollbackException;
-import javax.transaction.NotSupportedException;
-import javax.transaction.RollbackException;
-import javax.transaction.SystemException;
 import java.io.IOException;
 
 /**
@@ -30,5 +25,5 @@ import java.io.IOException;
 @FunctionalInterface
 public interface ReentrantOperation<T>
 {
-    T execute( ReentrantOperationLock opLock ) throws IOException, InterruptedException;
+    T apply( String path, SignallingLock opLock ) throws IOException, InterruptedException;
 }

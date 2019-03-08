@@ -18,11 +18,11 @@ package org.commonjava.util.partyline;
 import ch.qos.logback.core.util.FileSize;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
 import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.junit.Rule;
 import org.junit.Test;
@@ -65,7 +65,7 @@ public class JoinableFileTest
 
         final JoinableFile stream =
                 new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.read ), null, false,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         System.out.println( "File length: " + f.length() );
 
@@ -109,7 +109,7 @@ public class JoinableFileTest
 
         final JoinableFile jf =
                 new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.read ), null, false,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         try(InputStream stream = jf.joinStream())
         {
@@ -126,7 +126,7 @@ public class JoinableFileTest
         dir.mkdirs();
         final JoinableFile jf =
                 new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -141,7 +141,7 @@ public class JoinableFileTest
         dir.mkdirs();
         final JoinableFile jf =
                 new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -159,7 +159,7 @@ public class JoinableFileTest
         dir.mkdirs();
         final JoinableFile jf =
                 new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
         assertThat( jf.isJoinable(), equalTo( false ) );
@@ -175,7 +175,7 @@ public class JoinableFileTest
         dir.mkdirs();
         final JoinableFile jf =
                 new RandomAccessJFS().getFile( dir, newLockOwner( dir.getAbsolutePath(), LockLevel.read ), null, false,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         assertThat( jf.isWriteLocked(), equalTo( true ) );
 
@@ -194,7 +194,7 @@ public class JoinableFileTest
 
         final JoinableFile stream =
                 new RandomAccessJFS().getFile( tempFile, newLockOwner( tempFile.getAbsolutePath(), LockLevel.write ), null, true,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );
@@ -221,7 +221,7 @@ public class JoinableFileTest
         File f = temp.newFile();
         JoinableFile jf =
                 new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.write ), null, true,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         OutputStream stream = jf.getOutputStream();
 
@@ -230,7 +230,7 @@ public class JoinableFileTest
         stream.close();
 
         jf = new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.write ), null, true,
-                                       new ReentrantOperationLock() );
+                                       new SignallingLock() );
         stream = jf.getOutputStream();
 
         String shorter = "This is a short string";
@@ -262,7 +262,7 @@ public class JoinableFileTest
         try
         {
             jf = new RandomAccessJFS().getFile( f, newLockOwner( f.getAbsolutePath(), LockLevel.read ), null, false,
-                                           new ReentrantOperationLock() );
+                                           new SignallingLock() );
             s1 = jf.joinStream();
             s2 = jf.joinStream();
 
@@ -298,7 +298,7 @@ public class JoinableFileTest
 
         final JoinableFile stream =
                 new RandomAccessJFS().getFile( tempFile, newLockOwner( tempFile.getAbsolutePath(), LockLevel.write ), null, true,
-                                               new ReentrantOperationLock() );
+                                               new SignallingLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

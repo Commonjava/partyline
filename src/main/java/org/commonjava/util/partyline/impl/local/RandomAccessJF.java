@@ -15,11 +15,11 @@
  */
 package org.commonjava.util.partyline.impl.local;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.global.GlobalLockManager;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.slf4j.Logger;
@@ -89,7 +89,7 @@ public final class RandomAccessJF
 
     private final LocalLockOwner owner;
 
-    private final ReentrantOperationLock opLock;
+    private final SignallingLock opLock;
 
     private final GlobalLockManager globalLockManager;
 
@@ -104,7 +104,7 @@ public final class RandomAccessJF
      */
     RandomAccessJF( final File target, final LocalLockOwner owner, boolean doOutput ) throws IOException
     {
-        this( target, owner, null, doOutput, new ReentrantOperationLock(), null );
+        this( target, owner, null, doOutput, new SignallingLock(), null );
     }
 
     /**
@@ -119,7 +119,7 @@ public final class RandomAccessJF
      * the last joined input stream (or this stream, if there are none) closes.
      */
     RandomAccessJF( final File target, final LocalLockOwner owner, final StreamCallbacks callbacks, boolean doOutput,
-                    ReentrantOperationLock opLock, final GlobalLockManager globalLockManager ) throws IOException
+                    SignallingLock opLock, final GlobalLockManager globalLockManager ) throws IOException
     {
         this.owner = owner;
         this.path = target.getPath();
@@ -130,7 +130,7 @@ public final class RandomAccessJF
         target.getParentFile().mkdirs();
 
         Logger logger = LoggerFactory.getLogger( getClass() );
-        logger.trace( "Trying to initialize JoinableFile to: {} using operation lock:\n\n{}", target, opLock );
+        logger.trace( "Trying to initialize JoinableFile to: {} using operation lock: {}", target, opLock );
         try
         {
             if ( target.isDirectory() )
@@ -200,7 +200,7 @@ public final class RandomAccessJF
     @Override
     public InputStream joinStream() throws IOException, InterruptedException
     {
-        return lockAnd( ( lock ) -> {
+        return lockAnd( ( key, lock ) -> {
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
@@ -237,7 +237,7 @@ public final class RandomAccessJF
         try
         {
             locked = opLock.lock();
-            return op.execute( opLock );
+            return op.apply( path, opLock );
         }
         finally
         {
@@ -268,7 +268,7 @@ public final class RandomAccessJF
     {
         try
         {
-            lockAnd( ( lock ) -> {
+            lockAnd( ( key, lock ) -> {
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 if ( closed )
                 {
@@ -313,7 +313,7 @@ public final class RandomAccessJF
 
         try
         {
-            lockAnd( ( lock ) -> {
+            lockAnd( ( key, lock ) -> {
                 if ( channel != null )
                 {
                     channel.force( true );
@@ -395,7 +395,7 @@ public final class RandomAccessJF
     {
         try
         {
-            lockAnd( ( lock ) -> {
+            lockAnd( ( key, lock ) -> {
                 inputs.remove( input.hashCode() );
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
