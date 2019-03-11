@@ -21,7 +21,7 @@
   <parent>
     <groupId>org.commonjava</groupId>
     <artifactId>commonjava</artifactId>
-    <version>12</version>
+    <version>13</version>
   </parent>
 
   <groupId>org.commonjava.util</groupId>
@@ -40,7 +40,7 @@
   
   <properties>
     <weftVersion>1.10</weftVersion>
-    <infinispanVersion>8.2.4.Final</infinispanVersion>
+    <infinispanVersion>9.4.7.Final</infinispanVersion>
 
     <projectOwner>Red Hat, Inc.</projectOwner>
     <projectEmail>nos-devel@redhat.com</projectEmail>
@@ -89,7 +89,7 @@
         <scope>test</scope>
         <version>${byteman.version}</version>
       </dependency>
-      <!--<dependency>
+      <dependency>
         <groupId>org.infinispan</groupId>
         <artifactId>infinispan-commons</artifactId>
         <version>${infinispanVersion}</version>
@@ -97,11 +97,6 @@
       <dependency>
         <groupId>org.infinispan</groupId>
         <artifactId>infinispan-core</artifactId>
-        <version>${infinispanVersion}</version>
-      </dependency>-->
-      <dependency>
-        <groupId>org.infinispan</groupId>
-        <artifactId>infinispan-embedded</artifactId>
         <version>${infinispanVersion}</version>
       </dependency>
     </dependencies>
@@ -148,17 +143,18 @@
       <groupId>org.commonjava.cdi.util</groupId>
       <artifactId>weft</artifactId>
     </dependency>
-    <!--<dependency>
+    <dependency>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-commons</artifactId>
     </dependency>
     <dependency>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-core</artifactId>
-    </dependency>-->
+    </dependency>
     <dependency>
-      <groupId>org.infinispan</groupId>
-      <artifactId>infinispan-embedded</artifactId>
+      <groupId>org.jboss.logging</groupId>
+      <artifactId>jboss-logging</artifactId>
+      <version>3.3.0.Final</version>
     </dependency>
   </dependencies>
   
