@@ -1,14 +1,14 @@
 package org.commonjava.util.partyline.impl.infinispan;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
+import org.commonjava.cdi.util.weft.SignallingLocker;
 import org.commonjava.util.partyline.PartylineException;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.impl.infinispan.model.FileBlock;
 import org.commonjava.util.partyline.impl.infinispan.model.FileMeta;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.UnlockStatus;
-import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.infinispan.Cache;
@@ -16,6 +16,7 @@ import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryModified;
 import org.infinispan.notifications.cachelistener.event.CacheEntryEvent;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.transaction.HeuristicMixedException;
@@ -29,11 +30,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class InfinispanJFS
                 implements JoinableFilesystem
 {
-    private final LocalLockManager lockManager = new LocalLockManager();
+    private final Logger logger = LoggerFactory.getLogger( getClass() );
+
+    private final SignallingLocker<String> lockManager = new SignallingLocker();
 
     private static final long WAIT_TIMEOUT = 100;
 
@@ -65,19 +69,19 @@ public class InfinispanJFS
 
     @Override
     public JoinableFile getFile( final File file, final LocalLockOwner lockOwner, final StreamCallbacks callbacks,
-                                 final boolean doOutput, final ReentrantOperationLock opLock ) throws IOException
+                                 final boolean doOutput, final SignallingLock opLock ) throws IOException
     {
         return new InfinispanJF( file, lockOwner, callbacks, doOutput, opLock, this );
     }
 
     @Override
-    public LocalLockManager getLocalLockManager()
+    public SignallingLocker getLocalLockManager()
     {
         return lockManager;
     }
 
     @Override
-    public void updateDominantLocks( String path, UnlockStatus unlockStatus ) throws PartylineException
+    public void updateDominantLocks( String path, UnlockStatus unlockStatus )
     {
         // Do nothing if dominance did not change
         if ( !unlockStatus.isDominanceChanged() )
@@ -104,7 +108,6 @@ public class InfinispanJFS
             try
             {
                 transactionManager.rollback();
-                throw new PartylineException( "Failed to begin transaction. Rolling back. Path: " + path, e );
             }
             catch ( SystemException e1 )
             {
@@ -134,49 +137,64 @@ public class InfinispanJFS
             return null;
         }
         // setup a cache listener for the ID, and wait in a timed loop for it to return
-        try
-        {
-            return lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
-                ClusterListener clusterListener = new ClusterListener( next, opLock );
-                FileBlock nextBlock = null;
-                while ( nextBlock == null )
+        AtomicReference<IOException> error = new AtomicReference<>();
+
+        FileBlock ret = lockManager.lockAnd( metadata.getFilePath(), ( key, opLock ) -> {
+            ClusterListener clusterListener = new ClusterListener( next, opLock );
+            FileBlock nextBlock = null;
+            while ( nextBlock == null )
+            {
+                nextBlock = blockCache.get( next );
+                if ( nextBlock == null )
                 {
-                    nextBlock = blockCache.get( next );
-                    if ( nextBlock == null )
+                    try
                     {
                         clusterListener.listenToCacheAndWait( blockCache );
                     }
+                    catch ( IOException e )
+                    {
+                        logger.error( "Exception while getting next block for file: " + metadata.getFilePath(), e );
+                        error.set( e );
+                    }
                 }
-                return nextBlock;
-            } );
-        }
-        catch ( InterruptedException e )
+            }
+            return nextBlock;
+        } );
+
+        if ( error.get() != null )
         {
-            LoggerFactory.getLogger( getClass().getName() )
-                         .error( "Interrupted while trying to get block with ID: " + next, e );
+            throw error.get();
         }
-        return null;
+
+        return ret;
     }
 
     void pushNextBlock( final FileBlock prevBlock, final FileBlock nextBlock, final FileMeta metadata )
                     throws IOException
     {
-        try
-        {
-            lockManager.reentrantSynchronous( metadata.getFilePath(), ( opLock ) -> {
+        AtomicReference<IOException> error = new AtomicReference<>();
+        lockManager.lockAnd( metadata.getFilePath(), ( key, opLock ) -> {
+            try
+            {
                 updateBlock( prevBlock );
                 // If prevBlock is EOF then there will be no nextBlock
                 if ( nextBlock != null )
                 {
                     updateBlock( nextBlock );
                 }
+            }
+            catch ( IOException e )
+            {
+                logger.error( "IOException while adding next block to file: " + metadata.getFilePath(), e );
+                error.set( e );
+            }
 
-                return null;
-            } );
-        }
-        catch ( InterruptedException e )
+            return null;
+        } );
+
+        if ( error.get() != null )
         {
-            throw new IOException( "Thread interrupted while adding next block to file: " + metadata.getFilePath(), e );
+            throw error.get();
         }
     }
 
@@ -259,64 +277,42 @@ public class InfinispanJFS
     FileMeta getMetadata( final File target, final LocalLockOwner owner ) throws IOException
     {
         String path = target.getAbsolutePath();
-        try
-        {
-            return lockManager.reentrantSynchronous( path, ( opLock ) -> {
 
-                FileMeta meta = null;
-                TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
+        return lockManager.lockAnd( path, ( key, opLock ) -> {
 
+            FileMeta meta = null;
+            TransactionManager transactionManager = metadataCache.getAdvancedCache().getTransactionManager();
+
+            try
+            {
+                transactionManager.begin();
+
+                meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory(),
+                                                                                   this.blockSize ) );
+
+                LockLevel currentLockLevel = meta.getLockLevel( this.nodeKey );
+                // Only update the cache if the lock level changed
+                if ( currentLockLevel == null || currentLockLevel != owner.getLockLevel() )
+                {
+                    meta.setLock( this.nodeKey, owner.getLockLevel() );
+                    metadataCache.put( path, meta );
+                }
+                transactionManager.commit();
+            }
+            catch ( Exception e )
+            {
+                logger.error( "Failed to execute in transaction. Rolling back. Path: " + path, e );
                 try
                 {
-                    transactionManager.begin();
-
-                    meta = metadataCache.computeIfAbsent( path, ( p ) -> new FileMeta( p, target.isDirectory(),
-                                                                                       this.blockSize ) );
-
-                    LockLevel currentLockLevel = meta.getLockLevel( this.nodeKey );
-                    // Only update the cache if the lock level changed
-                    if ( currentLockLevel == null || currentLockLevel != owner.getLockLevel() )
-                    {
-                        meta.setLock( this.nodeKey, owner.getLockLevel() );
-                        metadataCache.put( path, meta );
-                    }
-
+                    transactionManager.rollback();
                 }
-                catch ( NotSupportedException | SystemException e )
+                catch ( SystemException e1 )
                 {
-                    try
-                    {
-                        transactionManager.rollback();
-                        throw new PartylineException( "Failed to begin transaction. Rolling back. Path: " + path, e );
-                    }
-                    catch ( SystemException e1 )
-                    {
-                        LoggerFactory.getLogger( getClass().getName() )
-                                     .error( "System Exception during transaction rollback involving path: " + path,
-                                             e1 );
-                    }
+                    logger.error( "SystemException during transaction rollback involving path: " + path, e1 );
                 }
-                finally
-                {
-                    try
-                    {
-                        transactionManager.commit();
-                    }
-                    catch ( RollbackException | HeuristicMixedException | HeuristicRollbackException | SystemException e )
-                    {
-                        LoggerFactory.getLogger( getClass().getName() )
-                                     .error( "Exception during transaction commit involving path: " + path, e );
-                    }
-
-                }
-                return meta;
-            } );
-        }
-        catch ( InterruptedException e )
-        {
-            LoggerFactory.getLogger( getClass().getName() ).error( "Problem retrieving metadata for path: " + path, e );
-        }
-        return null;
+            }
+            return meta;
+        } );
     }
 
     @Listener
@@ -326,9 +322,9 @@ public class InfinispanJFS
 
         String key;
 
-        ReentrantOperationLock lock;
+        SignallingLock lock;
 
-        public ClusterListener( String key, ReentrantOperationLock opLock )
+        public ClusterListener( String key, SignallingLock opLock )
         {
             this.key = key;
             this.lock = opLock;

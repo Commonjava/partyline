@@ -15,14 +15,14 @@
  */
 package org.commonjava.util.partyline.impl.local;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
+import org.commonjava.cdi.util.weft.SignallingLocker;
 import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.global.GlobalLockManager;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.commonjava.util.partyline.spi.JoinableFilesystem;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
-import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,7 +33,7 @@ import static org.commonjava.util.partyline.lock.LockLevel.read;
 public class RandomAccessJFS
                 implements JoinableFilesystem
 {
-    private final LocalLockManager lockManager = new LocalLockManager();
+    private final SignallingLocker lockManager = new SignallingLocker();
 
     private final GlobalLockManager globalLockManager;
 
@@ -49,7 +49,7 @@ public class RandomAccessJFS
 
     @Override
     public JoinableFile getFile( final File file, final LocalLockOwner lockOwner, final StreamCallbacks callbacks,
-                                 final boolean doOutput, ReentrantOperationLock opLock ) throws IOException
+                                 final boolean doOutput, SignallingLock opLock ) throws IOException
     {
         if ( globalLockManager != null )
         {
@@ -63,7 +63,7 @@ public class RandomAccessJFS
     }
 
     @Override
-    public LocalLockManager getLocalLockManager()
+    public SignallingLocker getLocalLockManager()
     {
         return lockManager;
     }

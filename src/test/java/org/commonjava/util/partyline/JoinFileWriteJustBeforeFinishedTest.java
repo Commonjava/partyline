@@ -15,11 +15,11 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
 import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
 import org.commonjava.util.partyline.lock.LockLevel;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
@@ -75,7 +75,7 @@ public class JoinFileWriteJustBeforeFinishedTest
         final JoinableFile stream = new RandomAccessJFS().getFile( file, new LocalLockOwner( file.getAbsolutePath(),
                                                                                              name.getMethodName(),
                                                                                              LockLevel.write ), null,
-                                                                   true, new ReentrantOperationLock() );
+                                                                   true, new SignallingLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

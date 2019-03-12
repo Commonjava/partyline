@@ -15,12 +15,12 @@
  */
 package org.commonjava.util.partyline.spi;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
+import org.commonjava.cdi.util.weft.SignallingLocker;
 import org.commonjava.util.partyline.PartylineException;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.lock.UnlockStatus;
-import org.commonjava.util.partyline.lock.local.LocalLockManager;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,11 +28,10 @@ import java.io.IOException;
 public interface JoinableFilesystem
 {
     JoinableFile getFile( File file, LocalLockOwner lockOwner, StreamCallbacks callbacks, boolean doOutput,
-                          ReentrantOperationLock opLock )
+                          SignallingLock opLock )
             throws IOException, InterruptedException;
 
-    LocalLockManager getLocalLockManager();
+    SignallingLocker getLocalLockManager();
 
-    void updateDominantLocks( String path, UnlockStatus unlockStatus )
-                    throws IOException, PartylineException;
+    void updateDominantLocks( String path, UnlockStatus unlockStatus );
 }

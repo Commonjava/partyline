@@ -15,13 +15,13 @@
  */
 package org.commonjava.util.partyline.impl.infinispan;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.util.partyline.callback.StreamCallbacks;
 import org.commonjava.util.partyline.impl.infinispan.model.FileBlock;
 import org.commonjava.util.partyline.impl.infinispan.model.FileMeta;
 import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.commonjava.util.partyline.lock.local.ReentrantOperation;
-import org.commonjava.util.partyline.lock.local.ReentrantOperationLock;
 import org.commonjava.util.partyline.spi.JoinableFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,10 +64,10 @@ public final class InfinispanJF
 
     private final LocalLockOwner owner;
 
-    private final ReentrantOperationLock opLock;
+    private final SignallingLock opLock;
 
     InfinispanJF( final File target, final LocalLockOwner owner, final StreamCallbacks callbacks, boolean doOutput,
-                  ReentrantOperationLock opLock, InfinispanJFS filesystem ) throws IOException
+                  SignallingLock opLock, InfinispanJFS filesystem ) throws IOException
     {
         this.owner = owner;
         this.path = target.getPath();
@@ -137,7 +137,7 @@ public final class InfinispanJF
 
     public InputStream joinStream() throws IOException, InterruptedException
     {
-        return lockAnd( ( lock ) -> {
+        return lockAnd( ( key, lock ) -> {
             if ( !joinable )
             {
                 // if the channel is null, this is a directory lock.
@@ -166,7 +166,7 @@ public final class InfinispanJF
         try
         {
             locked = opLock.lock();
-            return op.execute( opLock );
+            return op.apply( path, opLock );
         }
         finally
         {
@@ -187,7 +187,7 @@ public final class InfinispanJF
     {
         try
         {
-            lockAnd( ( lock ) -> {
+            lockAnd( ( key, lock ) -> {
                 Logger logger = LoggerFactory.getLogger( getClass() );
                 if ( closed )
                 {
@@ -232,7 +232,7 @@ public final class InfinispanJF
 
         try
         {
-            lockAnd( ( lock ) -> {
+            lockAnd( ( key, lock ) -> {
 
                 if ( callbacks != null )
                 {
@@ -273,7 +273,7 @@ public final class InfinispanJF
     {
         try
         {
-            lockAnd( ( lock ) -> {
+            lockAnd( ( key, lock ) -> {
                 inputs.remove( input.hashCode() );
 
                 Logger logger = LoggerFactory.getLogger( getClass() );
