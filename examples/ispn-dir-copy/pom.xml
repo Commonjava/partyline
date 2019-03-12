@@ -31,7 +31,7 @@
   <inceptionYear>2015</inceptionYear>
   
   <properties>
-    <infinispanVersion>8.2.4.Final</infinispanVersion>
+    <infinispanVersion>9.4.7.Final</infinispanVersion>
 
     <projectOwner>Red Hat, Inc.</projectOwner>
     <projectEmail>nos-devel@redhat.com</projectEmail>
