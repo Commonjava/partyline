@@ -51,7 +51,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
      */
     @BMRules( rules = {
             // wait for first openInputStream call to exit
-            @BMRule( name = "second openInputStream", targetClass = "JoinableFileManager",
+            @BMRule( name = "second openInputStream", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      binding = "name:String = $1.getName()",
@@ -61,7 +61,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
                              + "debug(\"<<<proceed with second openInputStream.\")" ),
 
             // setup the trigger to signal second openInputStream when the first openInputStream exits
-            @BMRule( name = "first openInputStream", targetClass = "JoinableFileManager",
+            @BMRule( name = "first openInputStream", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      binding = "name:String = $1.getName()",

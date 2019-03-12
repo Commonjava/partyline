@@ -52,20 +52,20 @@ public class TwoConcurrentReadsOnTheSameFileTest
      */
     @BMRules( rules = {
             // setup the rendezvous for all reading threads, which will mean suspending everything until all threads are started.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
+            @BMRule( name = "init rendezvous", targetClass = "Partyline",
                      targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "createRendezvous(\"begin\", 2);" + "debug(\"<<<init rendezvous for begin.\")" ),
 
             // setup the rendezvous to wait for all threads to be ready before proceeding.
-            @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
+            @BMRule( name = "openInputStream start", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      action = "debug(\">>>Waiting for ALL to start.\");" + "rendezvous(\"begin\");"
                              + "debug(\"<<<\"+Thread.currentThread().getName() + \": openInputStream() thread proceeding.\" )" ),
 
             // hold inputStream waiting for 1s before its close
-            @BMRule( name = "hold closed", targetClass = "JoinableFile$JoinInputStream",
+            @BMRule( name = "hold closed", targetClass = "RandomAccessJF$JoinInputStream",
                      targetMethod = "close",
                      targetLocation = "ENTRY",
                      action = "debug(\">>>waiting for closed.\");" + "java.lang.Thread.sleep(1000);" ) } )

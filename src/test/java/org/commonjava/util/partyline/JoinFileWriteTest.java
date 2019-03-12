@@ -48,7 +48,7 @@ public class JoinFileWriteTest
      */
     @BMRules( rules = {
             // wait for read call to exit
-            @BMRule( name = "write close", targetClass = "JoinableFile",
+            @BMRule( name = "write close", targetClass = "RandomAccessJF",
                      targetMethod = "close",
                      targetLocation = "ENTRY",
                      condition = "incrementCounter($0)==1",
@@ -56,7 +56,7 @@ public class JoinFileWriteTest
                              + "debug(\"<<<proceed with write close.\")" ),
 
             // setup the trigger to signal write close when the read exits
-            @BMRule( name = "read", targetClass = "JoinableFile",
+            @BMRule( name = "read", targetClass = "RandomAccessJF",
                      targetMethod = "joinStream",
                      targetLocation = "EXIT",
                      action = "debug(\"<<<signalling write close.\"); " + "signalWake(\"read\", true);"

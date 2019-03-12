@@ -48,20 +48,20 @@ public class JoinFileWriteTwiceWithDelayTest
      */
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean suspending everything until all threads are started.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFile",
+            @BMRule( name = "init rendezvous", targetClass = "RandomAccessJF",
                      targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "createRendezvous(\"begin\", 3);" + "debug(\"<<<init rendezvous for begin.\")" ),
 
             // setup the rendezvous to wait for all threads to be ready before proceeding.
-            @BMRule( name = "write close", targetClass = "JoinableFile",
+            @BMRule( name = "write close", targetClass = "RandomAccessJF",
                      targetMethod = "close",
                      targetLocation = "ENTRY",
                      condition = "incrementCounter($0)==1",
                      action = "debug(\">>>Waiting for ALL to start.\");" + "rendezvous(\"begin\");"
                              + "debug(\"<<<\"+Thread.currentThread().getName() + \": write thread proceeding.\" )" ),
 
-            @BMRule( name = "read", targetClass = "JoinableFile",
+            @BMRule( name = "read", targetClass = "RandomAccessJF",
                      targetMethod = "joinStream",
                      targetLocation = "EXIT",
                      action = "debug(\">>>Waiting for ALL to start.\");" + "rendezvous(\"begin\");"

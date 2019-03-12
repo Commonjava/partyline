@@ -27,6 +27,8 @@ public class InfinispanGLM
 
     private final static long DEFAULT_EXPIRATION_IN_MINUTES = 30;
 
+    private final static long DEFAULT_TIMEOUT_IN_MILLIS = TimeUnit.MINUTES.toMillis( 5 ); // 5 minutes
+
     private final Cache<String, GlobalLockOwner> lockCache;
 
     private final String id;
@@ -45,15 +47,12 @@ public class InfinispanGLM
     public boolean tryLock( String path, LockLevel level, long timeoutInMillis ) throws PartylineException
     {
         long cur = currentTimeMillis();
-        long end;
         if ( timeoutInMillis <= 0 )
         {
-            end = Long.MAX_VALUE;
+            timeoutInMillis = DEFAULT_TIMEOUT_IN_MILLIS;
         }
-        else
-        {
-            end = cur + timeoutInMillis;
-        }
+
+        long end = cur + timeoutInMillis;
 
         TransactionManager txManager = lockCache.getAdvancedCache().getTransactionManager();
 
@@ -61,6 +60,8 @@ public class InfinispanGLM
         {
             Boolean locked = executeInTransaction( txManager, () -> {
                 GlobalLockOwner lock = lockCache.get( path );
+                logger.debug( "Get global lock owner: {}", lock );
+
                 if ( lock == null )
                 {
                     putWithExpiration( path, new GlobalLockOwner( level ).withOwner( this.id ) );
@@ -70,6 +71,7 @@ public class InfinispanGLM
                 // if some node is reading and this node want to read too, add this to owner list
                 if ( lock.getLevel() == LockLevel.read && level == LockLevel.read )
                 {
+                    logger.debug( "Add this node {} to owners", this.id );
                     if ( !lock.containsOwner( this.id ) )
                     {
                         lock.withOwner( this.id );
@@ -82,7 +84,7 @@ public class InfinispanGLM
 
             if ( locked == null || !locked )
             {
-                sleepQuietly( 100 );
+                sleepQuietly( 1000 );
             }
             else
             {

@@ -72,7 +72,7 @@ public class ConcurrentFirstReaderTest
                              + "rendezvous(\"begin\"); "
                              + "debug(\"Continue read operations.\");"),
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
-            @BMRule( name = "new JoinableFile lock delay", targetClass = "JoinableFile", targetMethod = "<init>",
+            @BMRule( name = "new JoinableFile lock delay", targetClass = "RandomAccessJF", targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "debug(\"Delaying JoinableFile.init. Lock is: \" + $5); "
                              + "Thread.sleep(500);"

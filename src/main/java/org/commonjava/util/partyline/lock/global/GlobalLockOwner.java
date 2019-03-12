@@ -60,4 +60,10 @@ public class GlobalLockOwner
         level = LockLevel.valueOf( (String) objectInput.readObject() );
         ownerSet = (Set) objectInput.readObject();
     }
+
+    @Override
+    public String toString()
+    {
+        return "GlobalLockOwner{" + "level=" + level + ", ownerSet=" + ownerSet + '}';
+    }
 }
