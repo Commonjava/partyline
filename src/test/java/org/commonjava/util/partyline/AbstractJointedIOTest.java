@@ -16,12 +16,9 @@
 package org.commonjava.util.partyline;
 
 import org.commonjava.util.partyline.lock.global.GlobalLockOwner;
-import org.commonjava.util.partyline.lock.global.impl.InfinispanGLM;
+import org.commonjava.util.partyline.lock.global.impl.InfinispanTransactionalGLM;
 import org.infinispan.Cache;
-import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.manager.DefaultCacheManager;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
@@ -72,7 +69,7 @@ public abstract class AbstractJointedIOTest
 
             logger.debug( "With partylineLocksCache, txManager: {}",
                           partylineLocksCache.getAdvancedCache().getTransactionManager() );
-            return new Partyline( new InfinispanGLM( partylineLocksCache ) );
+            return new Partyline( new InfinispanTransactionalGLM( partylineLocksCache ) );
         }
         else
         {
