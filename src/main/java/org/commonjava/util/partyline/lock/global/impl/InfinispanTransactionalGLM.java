@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.Thread.sleep;
 
-public class InfinispanGLM
+public class InfinispanTransactionalGLM
                 implements GlobalLockManager
 {
     private final Logger logger = LoggerFactory.getLogger( getClass() );
@@ -37,7 +37,7 @@ public class InfinispanGLM
      * The lockCache must be a distributed and transactional cache being accessed by all nodes.
      * @param lockCache
      */
-    public InfinispanGLM( Cache<String, GlobalLockOwner> lockCache )
+    public InfinispanTransactionalGLM( Cache<String, GlobalLockOwner> lockCache )
     {
         this.lockCache = lockCache;
         this.id = UUID.randomUUID().toString();
@@ -151,7 +151,7 @@ public class InfinispanGLM
      * @param operation
      * @param <T>
      * @return
-     * @throws PartylineException
+     * @throws PartylineException if transaction not supported
      */
     private <T> T executeInTransaction( TransactionManager txManager, TransactionalOperation<T> operation )
                     throws PartylineException
@@ -185,8 +185,8 @@ public class InfinispanGLM
         {
             try
             {
-                txManager.rollback();
                 logger.error( "Failed to execute. Rolling back.", e );
+                txManager.rollback();
             }
             catch ( SystemException e1 )
             {
