@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
      */
     @BMRules( rules = {
             // wait for first openInputStream call to exit
-            @BMRule( name = "second openInputStream", targetClass = "JoinableFileManager",
+            @BMRule( name = "second openInputStream", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      condition = "$2==100",
@@ -60,7 +60,7 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
                              + "debug(\"<<<proceed with second openInputStream.\")" ),
 
             // setup the trigger to signal second openInputStream when the first openInputStream exits
-            @BMRule( name = "first openInputStream", targetClass = "JoinableFileManager",
+            @BMRule( name = "first openInputStream", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      condition = "$2==-1",
@@ -75,7 +75,7 @@ public class OpenInputStreamConcurrentReadersGetSameResultTest
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
 
         final File f = temp.newFile();
         String str = "This is a test";

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,11 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.commonjava.cdi.util.weft.SignallingLock;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -70,8 +75,8 @@ public class BinaryFileTest extends AbstractJointedIOTest {
 
         File binaryFile = temp.newFile( "binary-file.bin" );
         ReentrantLock lock = new ReentrantLock();
-        JoinableFile jf = newFile( binaryFile, new LockOwner( binaryFile.getAbsolutePath(),
-                                                                         name.getMethodName(), LockLevel.write ), true );
+        JoinableFile jf = new RandomAccessJFS().getFile( binaryFile, new LocalLockOwner( binaryFile.getAbsolutePath(),
+                                                                               name.getMethodName(), LockLevel.write ), null, true, new SignallingLock() );
         OutputStream jos = jf.getOutputStream();
         InputStream actual = jf.joinStream();
 
@@ -93,9 +98,12 @@ public class BinaryFileTest extends AbstractJointedIOTest {
             }
         }
 
+        actual.close();
+
         if ( !failures.isEmpty() )
         {
             fail( "Failures: " + failures );
         }
+
     }
 }

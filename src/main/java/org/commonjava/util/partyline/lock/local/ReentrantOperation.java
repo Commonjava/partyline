@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.commonjava.util.partyline;
+package org.commonjava.util.partyline.lock.local;
+
+import org.commonjava.cdi.util.weft.SignallingLock;
 
 import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.cdi.util.weft.SignallingLockOperation;
@@ -26,8 +28,7 @@ import java.util.function.BiFunction;
  * Created by jdcasey on 12/8/16.
  */
 @FunctionalInterface
-public interface LockedFileOperation<T>
+public interface ReentrantOperation<T>
 {
-    T apply( String path, AtomicReference<Exception> error, SignallingLock opLock );
-
+    T apply( String path, SignallingLock opLock ) throws IOException, InterruptedException;
 }

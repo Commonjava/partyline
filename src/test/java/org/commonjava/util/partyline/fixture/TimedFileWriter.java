@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package org.commonjava.util.partyline.fixture;
 
 import org.apache.commons.io.IOUtils;
 import org.commonjava.util.partyline.AbstractJointedIOTest;
-import org.commonjava.util.partyline.JoinableFile;
+import org.commonjava.util.partyline.spi.JoinableFile;
 
 import java.util.concurrent.CountDownLatch;
 

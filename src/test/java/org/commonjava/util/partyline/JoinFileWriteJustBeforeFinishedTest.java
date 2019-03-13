@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,12 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
@@ -43,7 +48,7 @@ public class JoinFileWriteJustBeforeFinishedTest
      */
     @BMRules( rules = {
             // wait for read call to exit
-            @BMRule( name = "write close", targetClass = "JoinableFile",
+            @BMRule( name = "write close", targetClass = "RandomAccessJF",
                      targetMethod = "close",
                      targetLocation = "ENTRY",
                      condition = "incrementCounter($0)==1",
@@ -51,7 +56,7 @@ public class JoinFileWriteJustBeforeFinishedTest
                              + "debug(\"<<<proceed with write close.\")" ),
 
             // setup the trigger to signal write close when the read exits
-            @BMRule( name = "read", targetClass = "JoinableFile",
+            @BMRule( name = "read", targetClass = "RandomAccessJF",
                      targetMethod = "joinStream",
                      targetLocation = "EXIT",
                      action = "debug(\"<<<signalling write close.\"); " + "signalWake(\"read\", true);"
@@ -67,8 +72,10 @@ public class JoinFileWriteJustBeforeFinishedTest
         final File file = temp.newFile();
         String threadName = "writer" + writers++;
 
-        final JoinableFile stream =
-                newFile( file, new LockOwner( file.getAbsolutePath(), name.getMethodName(), LockLevel.write ), true );
+        final JoinableFile stream = new RandomAccessJFS().getFile( file, new LocalLockOwner( file.getAbsolutePath(),
+                                                                                             name.getMethodName(),
+                                                                                             LockLevel.write ), null,
+                                                                   true, new SignallingLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

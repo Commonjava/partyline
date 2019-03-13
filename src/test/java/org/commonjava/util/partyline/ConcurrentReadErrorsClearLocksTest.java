@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,11 @@ import static org.commonjava.util.partyline.UtilThreads.writer;
 public class ConcurrentReadErrorsClearLocksTest
         extends AbstractBytemanTest
 {
+    protected boolean isGlobalTest()
+    {
+        return true;
+    }
+
     /**
      * Test that locks for mutiple reads clear correctly. This will setup an script of events for
      * a single file, where:
@@ -47,7 +52,7 @@ public class ConcurrentReadErrorsClearLocksTest
     /*@formatter:off*/
     @BMRules( rules = {
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
-            @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "<init>",
+            @BMRule( name = "new JoinableFile error", targetClass = "RandomAccessJF", targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      condition = "$4 == false",
                      action = "debug(\"Throwing test exception.\"); "
@@ -67,7 +72,7 @@ public class ConcurrentReadErrorsClearLocksTest
         CountDownLatch readBeginLatch = new CountDownLatch( 3 );
         CountDownLatch readEndLatch = new CountDownLatch( 3 );
 
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
         final long start = System.currentTimeMillis();
 
         execs.execute( writer( manager, f, latch, readEndLatch ) );

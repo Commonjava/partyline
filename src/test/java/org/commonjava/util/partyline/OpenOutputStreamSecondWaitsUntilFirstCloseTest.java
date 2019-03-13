@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,11 +24,8 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.OutputStream;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
@@ -40,8 +37,8 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
 {
 
     /**
-     * Test aligns two concurrent writing tasks as second starts until first close, operated on the same file verified to be available, this setup an script of events for
-     * one single file, where:
+     * Test aligns two concurrent writing tasks as second starts until first close, operated on the same file
+     * verified to be available, this setup an script of events for one single file, where:
      * <ol>
      *     <li>Multiple writes happened as a specific sequence</li>
      *     <li>Has no simultaneous Writing lock on the same file</li>
@@ -50,17 +47,17 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
      */
     @BMRules( rules = {
             // wait for first openOutputStream call to exit
-            @BMRule( name = "second openOutputStream", targetClass = "JoinableFileManager",
-                     targetMethod = "openOutputStream",
+            @BMRule( name = "second openOutputStream", targetClass = "Partyline",
+                     targetMethod = "openOutputStream(File,long)",
                      targetLocation = "ENTRY",
                      condition = "$2==100",
                      action = "debug(\">>>wait for service enter first openOutputStream.\");"
-                             + "waitFor(\"first openOutputStream\");" + "java.lang.Thread.sleep(10);"
+                             + "waitFor(\"first openOutputStream\");" + "java.lang.Thread.sleep(100);"
                              + "debug(\"<<<proceed with second openOutputStream.\")" ),
 
             // setup the trigger to signal second openOutputStream when the first openOutputStream exits
-            @BMRule( name = "first openOutputStream", targetClass = "JoinableFileManager",
-                     targetMethod = "openOutputStream",
+            @BMRule( name = "first openOutputStream", targetClass = "Partyline",
+                     targetMethod = "openOutputStream(File,long)",
                      targetLocation = "EXIT",
                      condition = "$2==-1",
                      action = "debug(\"<<<signalling second openOutputStream.\"); "
@@ -71,22 +68,22 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
     public void run()
             throws Exception
     {
-        final ExecutorService execs = Executors.newFixedThreadPool( 2 );
-        final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
+
 
         final File f = temp.newFile();
         final String first = "first";
         final String second = "second";
 
-        Map<String, String> returning = new HashMap<String, String>();
+        Map<String, Runnable> executions = new LinkedHashMap<>();
 
         for ( int i = 0; i < 2; i++ )
         {
             final int k = i;
-            execs.execute( () -> {
+            String tname = k < 1 ? first : second;
+            executions.put(tname, () -> {
 
-                Thread.currentThread().setName( "openOutputStream-" + k );
+                Thread.currentThread().setName( tname );
                 OutputStream o = null;
                 try
                 {
@@ -94,11 +91,9 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
                     {
                         case 0:
                             o = manager.openOutputStream( f, -1 );
-                            returning.put( first, String.valueOf( System.nanoTime() ) );
                             break;
                         case 1:
                             o = manager.openOutputStream( f, 100 );
-                            returning.put( second, String.valueOf( System.nanoTime() ) );
                     }
                     o.write( "Test data".getBytes() );
                     o.close();
@@ -108,21 +103,10 @@ public class OpenOutputStreamSecondWaitsUntilFirstCloseTest
                     e.printStackTrace();
                     fail( "Failed to open outputStream: " + e.getMessage() );
                 }
-                finally
-                {
-                    latch.countDown();
-                }
-
             } );
         }
 
-        latch.await();
-
-        long fistTimestamp = Long.valueOf( returning.get( first ) );
-        long secondTimestamp = Long.valueOf( returning.get( second ) );
-        assertThat( first + " completed at: " + fistTimestamp + "\n" + second + " completed at: " + secondTimestamp
-                            + "\nFirst should complete before second.", fistTimestamp < secondTimestamp,
-                    equalTo( true ) );
+        assertThat( raceExecutions( executions ), equalTo( first ) );
     }
 
 }

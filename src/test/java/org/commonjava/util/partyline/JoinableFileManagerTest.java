@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,9 @@ package org.commonjava.util.partyline;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.commonjava.cdi.util.weft.ThreadContext;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -37,8 +40,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.commonjava.util.partyline.LockOwner.PARTYLINE_LOCK_OWNER;
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
+import static org.commonjava.util.partyline.lock.local.LocalLockOwner.PARTYLINE_LOCK_OWNER;
+import static org.commonjava.util.partyline.util.FileTreeUtils.forAll;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
@@ -54,7 +58,19 @@ public class JoinableFileManagerTest
     @Rule
     public TestRule timeout = timeoutRule( 30, TimeUnit.SECONDS );
 
-    private final JoinableFileManager mgr = new JoinableFileManager();
+    private Partyline mgr;
+
+    @Before
+    public void init()
+    {
+        mgr = getPartylineInstance();
+    }
+
+    @After
+    public void clean()
+    {
+        stopCacheManager();
+    }
 
     @Test
     public void lockAndUnlockTwiceInSequenceFromOneThread()
@@ -326,7 +342,7 @@ public class JoinableFileManagerTest
         assertThat( "Threads did not end correctly!", end.getCount(), equalTo( 0L ) );
 
         AtomicInteger counter = new AtomicInteger( 0 );
-        mgr.getFileTree().forAll( entry->true, entry->counter.incrementAndGet() );
+        forAll( mgr.getFileTree().getUnmodifiableEntryMap(), entry->true, entry->counter.incrementAndGet() );
 
         assertThat( "FileEntry instance was not removed after closing!", counter.get(), equalTo( 0 ) );
     }
@@ -417,7 +433,7 @@ public class JoinableFileManagerTest
         assertThat( "Threads did not end correctly!", end.getCount(), equalTo( 0L ) );
 
         AtomicInteger counter = new AtomicInteger( 0 );
-        mgr.getFileTree().forAll( entry->true, entry->counter.incrementAndGet() );
+        forAll( mgr.getFileTree().getUnmodifiableEntryMap(), entry->true, entry->counter.incrementAndGet() );
 
         assertThat( "FileEntry instance was not removed after closing!", counter.get(), equalTo( 0 ) );
     }

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,13 +47,13 @@ public class ConcurrentReadWithOneErrorClearLocksTest
     /*@formatter:off*/
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean everything waits until all threads are started.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
+            @BMRule( name = "init rendezvous", targetClass = "Partyline",
                      targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "createCountDown(\"JOIN\", 2)" ),
 
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
-            @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "joinStream",
+            @BMRule( name = "new JoinableFile error", targetClass = "RandomAccessJF", targetMethod = "joinStream",
                      targetLocation = "ENTRY",
                      condition = "countDown(\"JOIN\")",
                      action = "debug(\"Throwing test exception in \" + Thread.currentThread().getName()); "
@@ -73,7 +73,7 @@ public class ConcurrentReadWithOneErrorClearLocksTest
         CountDownLatch readBeginLatch = new CountDownLatch( 3 );
         CountDownLatch readEndLatch = new CountDownLatch( 3 );
 
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
         manager.startReporting( 5000, 5000 );
         final long start = System.currentTimeMillis();
 

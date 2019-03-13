@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,13 @@
  */
 package org.commonjava.util.partyline;
 
-import org.commonjava.cdi.util.weft.SignallingLocker;
+import org.commonjava.cdi.util.weft.SignallingLock;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.spi.JoinableFile;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.File;
@@ -31,7 +37,20 @@ import static org.junit.Assert.fail;
 public class JoinableFileManagerPerformanceTest
         extends AbstractJointedIOTest
 {
-    private final JoinableFileManager mgr = new JoinableFileManager();
+
+    private Partyline mgr;
+
+    @Before
+    public void init()
+    {
+        mgr = getPartylineInstance();
+    }
+
+    @After
+    public void clean()
+    {
+        stopCacheManager();
+    }
 
     @Test
     public void bigFileWritePerformanceTest()
@@ -44,9 +63,8 @@ public class JoinableFileManagerPerformanceTest
         String content = createBigFileContent();
 
         JoinableFile jf =
-                new JoinableFile( jft, new LockOwner( jft.getPath(), "write test", LockLevel.write ), null, true,
-                                  new SignallingLocker<String>() );
-
+                new RandomAccessJFS().getFile( jft, new LocalLockOwner( jft.getPath(), "write test", LockLevel.write ),
+                                               null, true, new SignallingLock() );
         long start = System.currentTimeMillis();
         System.out.println("Opening output...");
         try(OutputStream out = jf.getOutputStream())
