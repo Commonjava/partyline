@@ -28,6 +28,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -88,7 +89,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
         FileUtils.write( mFile, main );
         FileUtils.write( dFile, derivative );
 
-        Map<String, String> returning = new HashMap<String, String>();
+        Map<String, String> returning = new ConcurrentHashMap<>();
 
         for ( int i = 0; i < 2; i++ )
         {
