@@ -253,6 +253,18 @@ public final class FileTree
                 unlockAssociatedEntries( entry, label );
                 removeEntryAndReentrantLock( entry.name, opLock );
 
+                if ( globalLockManager != null )
+                {
+                    try
+                    {
+                        globalLockManager.unlock( key, LockLevel.write );
+                    }
+                    catch ( PartylineException e )
+                    {
+                        logger.error( "Failed to unlock global path: {}", key );
+                    }
+                }
+
                 opLock.signal();
                 logger.trace( "Unlock succeeded." );
             }
@@ -587,19 +599,23 @@ public final class FileTree
                 }
             }
 
-            removeEntryAndReentrantLock( file.getAbsolutePath(), opLock );
-            opLock.signal();
-
-            if ( file.exists() )
+            try
             {
-                FileUtils.forceDelete( file );
-            }
+                removeEntryAndReentrantLock( file.getAbsolutePath(), opLock );
+                opLock.signal();
 
-            if ( globalLockManager != null )
-            {
-                globalLockManager.unlock( file.getAbsolutePath(), LockLevel.write );
+                if ( file.exists() )
+                {
+                    FileUtils.forceDelete( file );
+                }
             }
-            
+            finally
+            {
+                if ( globalLockManager != null )
+                {
+                    globalLockManager.unlock( file.getAbsolutePath(), LockLevel.write );
+                }
+            }
             return true;
         } );
     }

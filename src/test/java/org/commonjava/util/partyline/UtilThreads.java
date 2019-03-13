@@ -64,7 +64,7 @@ public final class UtilThreads
             System.out.println("Counting down master latch");
             masterLatch.countDown();
             System.out.println(
-                    String.format( "[%s] Count down after write thread: %s", Thread.currentThread().getName(),
+                    String.format( "[%s] Count down after write, masterLatch: %s", Thread.currentThread().getName(),
                                    masterLatch.getCount() ) );
         };
     }
@@ -144,7 +144,7 @@ public final class UtilThreads
                 System.out.println("Counting down master latch");
                 masterLatch.countDown();
                 System.out.println(
-                        String.format( "[%s] Count down after %s read thread: %s", Thread.currentThread().getName(), k,
+                        String.format( "[%s] Count down after %s read, masterLatch: %s", Thread.currentThread().getName(), k,
                                        masterLatch.getCount() ) );
             }
         };

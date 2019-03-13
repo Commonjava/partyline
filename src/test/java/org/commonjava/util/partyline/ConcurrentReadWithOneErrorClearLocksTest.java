@@ -47,13 +47,13 @@ public class ConcurrentReadWithOneErrorClearLocksTest
     /*@formatter:off*/
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean everything waits until all threads are started.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
+            @BMRule( name = "init rendezvous", targetClass = "Partyline",
                      targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "createCountDown(\"JOIN\", 2)" ),
 
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
-            @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "joinStream",
+            @BMRule( name = "new JoinableFile error", targetClass = "RandomAccessJF", targetMethod = "joinStream",
                      targetLocation = "ENTRY",
                      condition = "countDown(\"JOIN\")",
                      action = "debug(\"Throwing test exception in \" + Thread.currentThread().getName()); "

@@ -364,11 +364,6 @@ public final class RandomAccessJF
                     logger.trace( "Channel already closed..." );
                 }
 
-                if ( globalLockManager != null )
-                {
-                    globalLockManager.unlock( path, output != null ? LockLevel.write : LockLevel.read );
-                }
-
                 logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
                               Thread.currentThread().getName() );
 

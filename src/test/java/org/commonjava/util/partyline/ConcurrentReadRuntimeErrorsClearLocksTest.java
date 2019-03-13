@@ -47,7 +47,7 @@ public class ConcurrentReadRuntimeErrorsClearLocksTest
     /*@formatter:off*/
     @BMRules( rules = {
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
-            @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "<init>",
+            @BMRule( name = "new JoinableFile error", targetClass = "RandomAccessJF", targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      condition = "$4 == false",
                      action = "debug(\"Throwing test exception.\"); "

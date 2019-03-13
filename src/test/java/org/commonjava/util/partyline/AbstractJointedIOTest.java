@@ -48,10 +48,14 @@ public abstract class AbstractJointedIOTest
 
     protected DefaultCacheManager manager;
 
+    protected boolean isGlobalTest()
+    {
+        return true;
+    }
+
     protected Partyline getPartylineInstance()
     {
-        String local = (String) System.getProperty( "partyline.local" );
-        if ( local == null )
+        if ( isGlobalTest() )
         {
             // by default we run global test
             try
