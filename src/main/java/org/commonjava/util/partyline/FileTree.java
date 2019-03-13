@@ -391,8 +391,6 @@ public final class FileTree
                                     error.set( e );
                                     return null;
                                 }
-
-                                return result;
                             }
                             else
                             {
@@ -419,7 +417,7 @@ public final class FileTree
                     /*
                     If we've been cleared to proceed above, create a new FileEntry instance, lock it, and proceed.
                      */
-                    if ( error.get() == null && doFileLock )
+                    if ( doFileLock )
                     {
                         if ( read == lockLevel && !f.exists() )
                         {

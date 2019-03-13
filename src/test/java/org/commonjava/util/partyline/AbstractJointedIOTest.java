@@ -27,9 +27,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
-import java.io.File;
-import java.io.IOException;
-
 public abstract class AbstractJointedIOTest
 {
     private final Logger logger = LoggerFactory.getLogger( getClass() );
@@ -41,9 +38,6 @@ public abstract class AbstractJointedIOTest
 
     @Rule
     public TestName name = new TestName();
-
-    private final SignallingLocker<String> locker = new SignallingLocker<>();
-
 
     protected int readers = 0;
 

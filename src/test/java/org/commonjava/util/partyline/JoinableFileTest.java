@@ -321,5 +321,4 @@ public class JoinableFileTest
 
         assertThat( lines.size(), equalTo( COUNT ) );
     }
-
 }

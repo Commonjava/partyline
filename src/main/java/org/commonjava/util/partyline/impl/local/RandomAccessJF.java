@@ -31,6 +31,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.FileLock;
@@ -38,9 +39,6 @@ import java.nio.channels.OverlappingFileLockException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-
-import static org.commonjava.util.partyline.ExceptionUtils.handleError;
 
 /**
  * Manages concurrent read/write access to a file, via {@link RandomAccessFile}, {@link FileChannel}, and careful
@@ -68,8 +66,6 @@ public final class RandomAccessJF
                 implements JoinableFile
 {
     private static final int CHUNK_SIZE = 1024 * 1024; // 1mb
-
-    private final Logger logger = LoggerFactory.getLogger( getClass() );
 
     private final FileChannel channel;
 
@@ -213,13 +209,11 @@ public final class RandomAccessJF
                                 "It's in the process of closing." ) + ")" );
             }
 
-                return null;
-            }
+            JoinInputStream result = new JoinInputStream( inputs.size() );
+            inputs.put( result.hashCode(), result );
 
-            try
-            {
-                JoinInputStream result = new JoinInputStream( inputs.size() );
-                inputs.put( result.hashCode(), result );
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.debug( "JOIN: {} (new joint count: {})", Thread.currentThread().getName(), inputs.size() );
 
             return result;
         } );
@@ -249,48 +243,10 @@ public final class RandomAccessJF
         {
             if ( locked )
             {
-                error.set( e );
+                opLock.unlock();
             }
-
-            return null;
-        } );
-
-        handleError( error, "joinStream" );
-
-        return stream;
+        }
     }
-
-//    /**
-//     * Lock the {@link java.util.concurrent.locks.ReentrantLock} instance embedded in this {@link JoinableFile}, then
-//     * execute the given operation. This prevents more than one thread from executing operations against state associated
-//     * with the file this {@link JoinableFile} manages.
-//     *
-//     * @param op The operation to execute, once the operation lock is acquired
-//     * @param <T> The result type of the given operation
-//     * @return The result of operation execution
-//     * @throws IOException
-//     * @throws InterruptedException
-//     *
-//     * @see FileTree#withOpLock(File, LockedFileOperation) for associated logic
-//     */
-//    private <T> T lockAnd(LockedFileOperation<T> op)
-//            throws IOException, InterruptedException
-//    {
-//        boolean locked = false;
-//        AtomicReference<Exception> error = new AtomicReference<>();
-//        try
-//        {
-//            locked = opLock.lock();
-//            return op.execute( this.path, error, opLock );
-//        }
-//        finally
-//        {
-//            if ( locked )
-//            {
-//                opLock.unlock();
-//            }
-//        }
-//    }
 
     /**
      * Write locks happen when either a directory is locked, or the file was locked with doOutput == true.
@@ -321,51 +277,29 @@ public final class RandomAccessJF
                 }
                 logger.trace( "close() called, marking as closed." );
 
-            closed = true;
+                closed = true;
 
-            if ( output != null && !output.isClosed() )
-            {
-                logger.trace( "Closing output" );
-                try
+                if ( output != null && !output.isClosed() )
                 {
+                    logger.trace( "Closing output" );
                     output.close();
                 }
-                catch ( IOException e )
-                {
-                    error.set( e );
-                }
-            }
 
-            if ( error.get() != null )
-            {
-                return null;
-            }
-
-            logger.trace( "joint count is: {}.", inputs.size() );
-            if ( channel == null || inputs.isEmpty() )
-            {
-                logger.trace( "Joints closed, and output is closed...really closing." );
-                try
+                logger.trace( "joint count is: {}.", inputs.size() );
+                if ( channel == null || inputs.isEmpty() )
                 {
+                    logger.trace( "Joints closed, and output is closed...really closing." );
                     reallyClose();
                     owner.clearLocks();
                 }
-                catch ( IOException e )
-                {
-                    error.set( e );
-                }
-            }
 
-            return null;
-        } );
-
-        try
-        {
-            handleError( error, "close: " + path );
+                return null;
+            } );
         }
         catch ( InterruptedException e )
         {
-            logger.debug( "SHOULD NOT HAPPEN: Interrupted while closing: " + path, e );
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.warn( "Interrupted while closing: {}", getPath() );
         }
     }
 
@@ -384,47 +318,29 @@ public final class RandomAccessJF
                 {
                     channel.force( true );
                 }
-                catch ( IOException e )
+
+                if ( callbacks != null )
                 {
-                    error.set( e );
+                    logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
+                    callbacks.beforeClose();
                 }
-            }
 
-            if ( error.get() != null ) return null;
+                joinable = false;
 
-            if ( callbacks != null )
-            {
-                logger.trace( "calling beforeClose() on callbacks: {}", callbacks );
-                callbacks.beforeClose();
-            }
-
-            joinable = false;
-
-            if ( output != null )
-            {
-                logger.trace( "Setting length of: {} to written length: {}", path, flushed );
-                try
+                if ( output != null )
                 {
+                    logger.trace( "Setting length of: {} to written length: {}", path, flushed );
                     randomAccessFile.setLength( flushed.get() );
                     /* channel.force() is not enough to force system cached data to be written to underlying
                          device if the file does not reside on a local device (like NFS) */
                     randomAccessFile.getFD().sync();
                 }
-                catch ( IOException e )
-                {
-                    error.set( e );
-                }
-            }
 
-            if ( error.get() != null ) return null;
-
-            // if the channel is null, this is a directory lock.
-            if ( channel != null )
-            {
-                logger.trace( "Closing underlying channel / random-access file..." );
-                try
+                // if the channel is null, this is a directory lock.
+                if ( channel != null )
                 {
-                    if ( channel.isOpen() )
+                    logger.trace( "Closing underlying channel / random-access file..." );
+                    try
                     {
                         if ( channel.isOpen() )
                         {
@@ -438,39 +354,31 @@ public final class RandomAccessJF
 
                         randomAccessFile.close();
                     }
-                    else
+                    catch ( ClosedChannelException e )
                     {
-                        logger.trace( "Channel was not open..." );
+                        logger.debug( "Lock release failed on closed channel.", e );
                     }
-
-                    randomAccessFile.close();
                 }
-                catch ( IOException e )
+                else
                 {
-                    logger.debug( "Failed to close channel or random-access file: " + path , e );
-                    error.set( e );
+                    logger.trace( "Channel already closed..." );
                 }
-            }
-            else
-            {
-                logger.trace( "Channel already closed..." );
-            }
 
-            logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
-                          Thread.currentThread().getName() );
+                logger.trace( "JoinableFile for: {} is really closed (by thread: {}).", path,
+                              Thread.currentThread().getName() );
 
-            if ( callbacks != null )
-            {
-                logger.trace( "calling closed() on callbacks: {}", callbacks );
-                callbacks.closed();
-            }
+                if ( callbacks != null )
+                {
+                    logger.trace( "calling closed() on callbacks: {}", callbacks );
+                    callbacks.closed();
+                }
 
                 return null;
             } );
         }
         catch ( InterruptedException e )
         {
-            logger.debug( "SHOULD NOT HAPPEN: Interrupted while reallyClosing: " + path, e );
+            logger.error( "Interrupted while closing: " + path, e );
         }
     }
 
@@ -485,21 +393,15 @@ public final class RandomAccessJF
             lockAnd( ( key, lock ) -> {
                 inputs.remove( input.hashCode() );
 
-            Logger logger = LoggerFactory.getLogger( getClass() );
-            logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
-            if ( inputs.isEmpty() )
-            {
-                if ( output == null || output.isClosed() )
+                Logger logger = LoggerFactory.getLogger( getClass() );
+                logger.trace( "jointClosed() called in: {}, current joint count: {}", this, inputs.size() );
+                if ( inputs.isEmpty() )
                 {
-                    logger.trace( "All input joint closed, and output is missing or closed. Really closing." );
-                    closed = true;
-                    try
+                    if ( output == null || output.isClosed() )
                     {
+                        logger.trace( "All input joint closed, and output is missing or closed. Really closing." );
+                        closed = true;
                         reallyClose();
-                    }
-                    catch ( IOException e )
-                    {
-                        error.set( e );
                     }
                 }
                 else
@@ -508,16 +410,13 @@ public final class RandomAccessJF
                     //                    owner.unlock( originalThreadName );
                 }
 
-            return null;
-        } );
-
-        try
-        {
-            handleError( error, "joinClosed: " + input.jointIdx + " on: " + path );
+                return null;
+            } );
         }
         catch ( InterruptedException e )
         {
-            logger.debug( "SHOULD NOT HAPPEN: Interrupted while jointClosing: " + path, e );
+            Logger logger = LoggerFactory.getLogger( getClass() );
+            logger.warn( "Interrupted while closing reader joint of: {}", getPath() );
         }
     }
 

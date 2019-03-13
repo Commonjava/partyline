@@ -17,12 +17,7 @@ package org.commonjava.util.partyline.lock.local;
 
 import org.commonjava.cdi.util.weft.SignallingLock;
 
-import org.commonjava.cdi.util.weft.SignallingLock;
-import org.commonjava.cdi.util.weft.SignallingLockOperation;
-
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiFunction;
 
 /**
  * Created by jdcasey on 12/8/16.
