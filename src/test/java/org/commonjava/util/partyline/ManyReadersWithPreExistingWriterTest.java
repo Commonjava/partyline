@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,8 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,6 +42,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
@@ -56,10 +59,11 @@ public class ManyReadersWithPreExistingWriterTest
 
     private static final int ITERATIONS = 2;
 
-    private ExecutorService executor = new PoolWeftExecutorService( "test",
-                                                                    (ThreadPoolExecutor) Executors.newCachedThreadPool() );
+    private ExecutorService executor =
+                    new PoolWeftExecutorService( "test", (ThreadPoolExecutor) Executors.newCachedThreadPool(), 30,
+                                                 10.0f, false, null, null );
 
-    private final JoinableFileManager mgr = new JoinableFileManager();
+    private final Partyline mgr = getPartylineInstance();
 
     private String content;
 

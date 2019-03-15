@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ public class ConcurrentFirstReaderTest
                              + "rendezvous(\"begin\"); "
                              + "debug(\"Continue read operations.\");"),
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
-            @BMRule( name = "new JoinableFile lock delay", targetClass = "JoinableFile", targetMethod = "<init>",
+            @BMRule( name = "new JoinableFile lock delay", targetClass = "RandomAccessJF", targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "debug(\"Delaying JoinableFile.init. Lock is: \" + $5); "
                              + "Thread.sleep(500);"
@@ -93,7 +93,7 @@ public class ConcurrentFirstReaderTest
         FileUtils.writeByteArrayToFile( f, bytes );
 
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
 
         manager.startReporting( 5000, 5000 );
 

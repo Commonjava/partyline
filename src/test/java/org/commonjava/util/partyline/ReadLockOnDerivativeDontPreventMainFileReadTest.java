@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -51,7 +52,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
      */
     @BMRules( rules = {
             // wait for first openInputStream call to exit
-            @BMRule( name = "second openInputStream", targetClass = "JoinableFileManager",
+            @BMRule( name = "second openInputStream", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      binding = "name:String = $1.getName()",
@@ -61,7 +62,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
                              + "debug(\"<<<proceed with second openInputStream.\")" ),
 
             // setup the trigger to signal second openInputStream when the first openInputStream exits
-            @BMRule( name = "first openInputStream", targetClass = "JoinableFileManager",
+            @BMRule( name = "first openInputStream", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      binding = "name:String = $1.getName()",
@@ -76,7 +77,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
 
         final String main = "main";
         final String derivative = "derivative";
@@ -88,7 +89,7 @@ public class ReadLockOnDerivativeDontPreventMainFileReadTest
         FileUtils.write( mFile, main );
         FileUtils.write( dFile, derivative );
 
-        Map<String, String> returning = new HashMap<String, String>();
+        Map<String, String> returning = new ConcurrentHashMap<>();
 
         for ( int i = 0; i < 2; i++ )
         {

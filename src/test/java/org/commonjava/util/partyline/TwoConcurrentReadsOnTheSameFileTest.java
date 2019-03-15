@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,20 +52,20 @@ public class TwoConcurrentReadsOnTheSameFileTest
      */
     @BMRules( rules = {
             // setup the rendezvous for all reading threads, which will mean suspending everything until all threads are started.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFileManager",
+            @BMRule( name = "init rendezvous", targetClass = "Partyline",
                      targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "createRendezvous(\"begin\", 2);" + "debug(\"<<<init rendezvous for begin.\")" ),
 
             // setup the rendezvous to wait for all threads to be ready before proceeding.
-            @BMRule( name = "openInputStream start", targetClass = "JoinableFileManager",
+            @BMRule( name = "openInputStream start", targetClass = "Partyline",
                      targetMethod = "openInputStream",
                      targetLocation = "ENTRY",
                      action = "debug(\">>>Waiting for ALL to start.\");" + "rendezvous(\"begin\");"
                              + "debug(\"<<<\"+Thread.currentThread().getName() + \": openInputStream() thread proceeding.\" )" ),
 
             // hold inputStream waiting for 1s before its close
-            @BMRule( name = "hold closed", targetClass = "JoinableFile$JoinInputStream",
+            @BMRule( name = "hold closed", targetClass = "RandomAccessJF$JoinInputStream",
                      targetMethod = "close",
                      targetLocation = "ENTRY",
                      action = "debug(\">>>waiting for closed.\");" + "java.lang.Thread.sleep(1000);" ) } )
@@ -76,7 +76,7 @@ public class TwoConcurrentReadsOnTheSameFileTest
     {
         final ExecutorService execs = Executors.newFixedThreadPool( 2 );
         final CountDownLatch latch = new CountDownLatch( 2 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
 
         final String content = "This is a bmunit test";
         final File file = temp.newFile( "file_both_read.txt" );

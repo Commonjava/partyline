@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,9 @@ package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -30,6 +33,7 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.concurrent.TimeUnit;
 
+import static org.commonjava.util.partyline.util.FileTreeUtils.renderTree;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
 
@@ -49,7 +53,7 @@ public class FileTreeTest
     public void lockDirThenLockFile()
             throws IOException, InterruptedException
     {
-        FileTree root = new FileTree();
+        FileTree root = new FileTree( new RandomAccessJFS() );
         String dirPath = "directory";
         File child = createStructure( Paths.get( dirPath, "child.txt" ).toString(), true );
         File dir = child.getParentFile();
@@ -58,7 +62,7 @@ public class FileTreeTest
 
         assertThat( dirLocked, equalTo( true ) );
 
-        try (JoinableFile jf = root.setOrJoinFile( child, null, true, 2000, TimeUnit.MILLISECONDS,
+        try (JoinableFile jf = root.setOrJoinFile( child, true, 2000, TimeUnit.MILLISECONDS,
                                                    ( result ) -> result );
              OutputStream out = jf.getOutputStream())
         {
@@ -70,7 +74,7 @@ public class FileTreeTest
     public void lockDirThenLockTwoFiles()
             throws IOException, InterruptedException
     {
-        FileTree root = new FileTree();
+        FileTree root = new FileTree( new RandomAccessJFS() );
         String dirPath = "directory";
         File child = createStructure( Paths.get( dirPath, "child.txt" ).toString(), true );
         File child2 = createStructure( Paths.get( dirPath, "child2.txt" ).toString(), true );
@@ -80,9 +84,9 @@ public class FileTreeTest
 
         assertThat( dirLocked, equalTo( true ) );
 
-        try (JoinableFile jf = root.setOrJoinFile( child, null, true, 2000, TimeUnit.MILLISECONDS,
+        try (JoinableFile jf = root.setOrJoinFile( child, true, 2000, TimeUnit.MILLISECONDS,
                                                    ( result ) -> result );
-             JoinableFile jf2 = root.setOrJoinFile( child2, null, true, 2000, TimeUnit.MILLISECONDS,
+             JoinableFile jf2 = root.setOrJoinFile( child2, true, 2000, TimeUnit.MILLISECONDS,
                                                     ( result ) -> result );
              OutputStream out = jf.getOutputStream();
              OutputStream out2 = jf2.getOutputStream();)
@@ -98,13 +102,13 @@ public class FileTreeTest
     public void addChildAndRenderTree()
             throws IOException, InterruptedException
     {
-        FileTree root = new FileTree();
+        FileTree root = new FileTree(new RandomAccessJFS() );
         File child = createStructure( "child.txt", true );
-        JoinableFile jf = root.setOrJoinFile( child, null, false, -1, TimeUnit.MILLISECONDS, ( result ) -> result );
+        JoinableFile jf = root.setOrJoinFile( child, false, -1, TimeUnit.MILLISECONDS, ( result ) -> result );
         //        JoinableFile jf = new JoinableFile( child, false );
         //        root.add( jf );
 
-        System.out.println( "File tree rendered as:\n" + root.renderTree() );
+        System.out.println( "File tree rendered as:\n" + renderTree( root.getUnmodifiableEntryMap() ) );
     }
 
     private File createStructure( String path, boolean writeTestFile )

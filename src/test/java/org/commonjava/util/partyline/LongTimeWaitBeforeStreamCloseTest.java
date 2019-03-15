@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package org.commonjava.util.partyline;
 
 import org.apache.commons.io.FileUtils;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import static org.commonjava.util.partyline.fixture.ThreadDumper.timeoutRule;
 
 public class LongTimeWaitBeforeStreamCloseTest
+                extends AbstractJointedIOTest
 {
 
     @Rule
@@ -36,9 +38,10 @@ public class LongTimeWaitBeforeStreamCloseTest
     public TemporaryFolder temp = new TemporaryFolder();
 
     @Test
+    @Ignore
     public void run() throws Exception
     {
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
         final File f = temp.newFile( "long-wait-before-close.txt" );
         FileUtils.write( f, "This is a long time wait test" );
 

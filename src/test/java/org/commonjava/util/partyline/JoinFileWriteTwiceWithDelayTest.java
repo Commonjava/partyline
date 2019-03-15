@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,12 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.cdi.util.weft.SignallingLock;
 import org.commonjava.util.partyline.fixture.TimedFileWriter;
+import org.commonjava.util.partyline.impl.local.RandomAccessJFS;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
+import org.commonjava.util.partyline.spi.JoinableFile;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
@@ -43,20 +48,20 @@ public class JoinFileWriteTwiceWithDelayTest
      */
     @BMRules( rules = {
             // setup the rendezvous for all threads, which will mean suspending everything until all threads are started.
-            @BMRule( name = "init rendezvous", targetClass = "JoinableFile",
+            @BMRule( name = "init rendezvous", targetClass = "RandomAccessJF",
                      targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      action = "createRendezvous(\"begin\", 3);" + "debug(\"<<<init rendezvous for begin.\")" ),
 
             // setup the rendezvous to wait for all threads to be ready before proceeding.
-            @BMRule( name = "write close", targetClass = "JoinableFile",
+            @BMRule( name = "write close", targetClass = "RandomAccessJF",
                      targetMethod = "close",
                      targetLocation = "ENTRY",
                      condition = "incrementCounter($0)==1",
                      action = "debug(\">>>Waiting for ALL to start.\");" + "rendezvous(\"begin\");"
                              + "debug(\"<<<\"+Thread.currentThread().getName() + \": write thread proceeding.\" )" ),
 
-            @BMRule( name = "read", targetClass = "JoinableFile",
+            @BMRule( name = "read", targetClass = "RandomAccessJF",
                      targetMethod = "joinStream",
                      targetLocation = "EXIT",
                      action = "debug(\">>>Waiting for ALL to start.\");" + "rendezvous(\"begin\");"
@@ -73,7 +78,8 @@ public class JoinFileWriteTwiceWithDelayTest
         String threadName = "writer" + writers++;
 
         final JoinableFile stream =
-                newFile( file, new LockOwner( file.getAbsolutePath(), name.getMethodName(), LockLevel.write ), true );
+                new RandomAccessJFS().getFile( file, new LocalLockOwner( file.getAbsolutePath(), name.getMethodName(), LockLevel.write ), null, true,
+                                               new SignallingLock() );
 
         execs.execute( () -> {
             Thread.currentThread().setName( threadName );

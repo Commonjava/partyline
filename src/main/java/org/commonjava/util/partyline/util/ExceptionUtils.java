@@ -13,15 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.commonjava.util.partyline;
+package org.commonjava.util.partyline.util;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
 
-class ExceptionUtils
+public class ExceptionUtils
 {
-    static void handleError( AtomicReference<Exception> error, String label )
-            throws IOException, InterruptedException
+    public static void handleError( AtomicReference<Exception> error, String label )
+                    throws IOException, InterruptedException
     {
         Exception e = error.get();
         if ( e != null )

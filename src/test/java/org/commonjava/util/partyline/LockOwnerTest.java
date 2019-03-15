@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,17 @@
  */
 package org.commonjava.util.partyline;
 
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.UnlockStatus;
+import org.commonjava.util.partyline.lock.local.LocalLockOwner;
 import org.junit.Test;
 
 import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 /**
  * Created by jdcasey on 6/2/17.
@@ -44,13 +47,14 @@ public class LockOwnerTest
     public void lockClearAndLockAgainWithDifferentLevel()
     {
         String label = "testing";
-        LockOwner owner = new LockOwner( "/path/to/nowhere", label, LockLevel.write );
+        LocalLockOwner owner = new LocalLockOwner( "/path/to/nowhere", label, LockLevel.write );
 
         assertThat( owner.isLockedByCurrentThread(), equalTo( true ) );
 
-        boolean unlocked = owner.unlock( label );
+        UnlockStatus unlocked = owner.unlock( label );
 
-        assertThat( unlocked, equalTo( true ) );
+        assertThat( unlocked, notNullValue() );
+        assertThat( unlocked.isUnlocked(), equalTo( true ) );
         assertThat( owner.isLockedByCurrentThread(), equalTo( false ) );
 
         boolean locked = owner.lock( "relocking", LockLevel.delete );

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,22 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.commonjava.util.partyline;
+package org.commonjava.util.partyline.lock.local;
 
 import org.commonjava.cdi.util.weft.ThreadContext;
+import org.commonjava.util.partyline.lock.LockLevel;
+import org.commonjava.util.partyline.lock.UnlockStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 import static org.apache.commons.lang.StringUtils.join;
 
@@ -40,14 +38,14 @@ import static org.apache.commons.lang.StringUtils.join;
  *
  * @see LockLevel for more information about allowable operations for given lock levels
  */
-final class LockOwner
+public final class LocalLockOwner
 {
 
     public static final String PARTYLINE_LOCK_OWNER = "partyline-lock-owner";
 
     private final Logger logger = LoggerFactory.getLogger( getClass() );
 
-    private final Map<String, LockOwnerInfo> locks = new LinkedHashMap<>();
+    private final Map<String, LockOwnerInfo> lockInfoMap = new LinkedHashMap<>();
 
     private String path;
 
@@ -55,7 +53,7 @@ final class LockOwner
 
     private String dominantOwner;
 
-    LockOwner( String path, String label, LockLevel lockLevel )
+    public LocalLockOwner( String path, String label, LockLevel lockLevel )
     {
         this.path = path;
         this.dominantLockLevel = lockLevel;
@@ -63,20 +61,20 @@ final class LockOwner
         increment( label, lockLevel );
     }
 
-    boolean isLocked()
+    public boolean isLocked()
     {
-        return !locks.isEmpty();
+        return !lockInfoMap.isEmpty();
     }
 
-    boolean isLockedByCurrentThread()
+    public boolean isLockedByCurrentThread()
     {
-        return !locks.isEmpty() && locks.containsKey( getLockReservationName() );
+        return !lockInfoMap.isEmpty() && lockInfoMap.containsKey( getLockReservationName() );
     }
 
-    synchronized boolean lock( String label, LockLevel lockLevel )
+    public synchronized boolean lock( String label, LockLevel lockLevel )
     {
         String lockOwner = getLockReservationName();
-        if ( locks.isEmpty() )
+        if ( lockInfoMap.isEmpty() )
         {
             logger.trace( "Not locked; locking: {}", lockOwner );
             this.dominantLockLevel = lockLevel;
@@ -85,7 +83,7 @@ final class LockOwner
             return true;
         }
 
-        LockOwnerInfo ownerInfo = locks.get( lockOwner );
+        LockOwnerInfo ownerInfo = lockInfoMap.get( lockOwner );
         if ( ownerInfo != null && ownerInfo.level == lockLevel )
         {
             increment(label, lockLevel);
@@ -123,14 +121,14 @@ final class LockOwner
         return String.format( "LockOwner [%s] of: %s", super.hashCode(), path );
     }
 
-    synchronized CharSequence getLockInfo()
+    public synchronized CharSequence getLockInfo()
     {
         StringBuilder sb = new StringBuilder().append( "Lock level: " )
                                   .append( dominantLockLevel )
                                   .append( "\nLocks: " );
-        locks.values().forEach( ( v ) -> {
+        lockInfoMap.values().forEach( ( v ) -> {
             sb.append(v.ownerName).append(":\n  ");
-            v.locks.forEach( ( label ) -> sb.append( label ).append( '\n' ) );
+            v.labels.forEach( ( label ) -> sb.append( label ).append( '\n' ) );
         } );
 
         return sb;
@@ -139,81 +137,85 @@ final class LockOwner
     private synchronized int increment( String label, LockLevel level )
     {
         String ownerName = getLockReservationName();
-        LockOwnerInfo lockOwnerInfo = locks.computeIfAbsent( ownerName, o->new LockOwnerInfo( level ) );
+        LockOwnerInfo lockOwnerInfo = lockInfoMap.computeIfAbsent( ownerName, o->new LockOwnerInfo( level ) );
 
-        lockOwnerInfo.locks.add( label );
-        int lockCount = lockOwnerInfo.locks.size();
+        lockOwnerInfo.labels.add( label );
+        int lockCount = lockOwnerInfo.labels.size();
 
         logger.trace( "\n\n\n{}\n  Incremented lock count.\n  New count is: {} \n  Owner: {}\n  Ref: {}\n\n\n", path, lockCount, ownerName, label );
         return lockCount;
     }
 
-    synchronized boolean unlock( final String label )
+    public synchronized UnlockStatus unlock( final String label )
     {
         String ownerName = getLockReservationName();
-        LockOwnerInfo lockOwnerInfo = locks.get( ownerName );
+        LockOwnerInfo lockOwnerInfo = lockInfoMap.get( ownerName );
         if ( lockOwnerInfo == null )
         {
-            logger.trace( "Not locked by: {}. Returning false.", ownerName );
-            return false;
+            logger.trace( "Not locked by: {}. Returning null.", ownerName );
+            return new UnlockStatus( false, false, null );
         }
 
-        lockOwnerInfo.locks.remove( label );
-        int count = lockOwnerInfo.locks.size();
+        lockOwnerInfo.labels.remove( label );
+        int count = lockOwnerInfo.labels.size();
         logger.trace( "Decremented lock count.\n  Path: {}\n  for owner: {}\n  New count is: {}\nLock Info:\n{}", this.path, ownerName, count, getLockInfo() );
 
         if ( count < 1 )
         {
-            locks.remove( ownerName );
+            lockInfoMap.remove( ownerName );
             if ( dominantOwner.equals( ownerName ) )
             {
                 logger.trace( "Unlocked owner is removed, but was dominant lock holder. Calculating new dominant lock holder." );
 
-                Optional<LockOwnerInfo> first = locks.values()
-                                                     .stream()
-                                                     .sorted( ( o1, o2 ) -> new Integer( o2.level.ordinal() ).compareTo(
+                Optional<LockOwnerInfo> first = lockInfoMap.values()
+                                                           .stream()
+                                                           .sorted( ( o1, o2 ) -> new Integer( o2.level.ordinal() ).compareTo(
                                                              o1.level.ordinal() ) )
-                                                     .findFirst();
+                                                           .findFirst();
 
                 if ( first.isPresent() )
                 {
                     LockOwnerInfo newDom = first.get();
                     this.dominantOwner = newDom.ownerName;
+                    // check to see if the dominant lock level actually changed
+                    boolean changed = ( this.dominantLockLevel != newDom.level );
                     this.dominantLockLevel = newDom.level;
                     logger.trace( "New dominant holder is: {} with level: {}", this.dominantOwner,
                                   this.dominantLockLevel );
+                    return new UnlockStatus( true, changed, this.dominantLockLevel );
                 }
                 else
                 {
                     logger.trace( "Locks seems to be empty; Unlocking" );
                     this.dominantOwner = null;
                     this.dominantLockLevel = null;
+                    return new UnlockStatus( true, true, null );
                 }
             }
 
-            return true;
+            return new UnlockStatus( true, false, this.dominantLockLevel );
         }
 
         logger.trace( "Unlock operation did not free final lock from file" );
-        return false;
+        return new UnlockStatus( false, false, this.dominantLockLevel );
     }
 
-    LockLevel getLockLevel()
+    public LockLevel getLockLevel()
     {
         return dominantLockLevel;
     }
 
-    synchronized int getContextLockCount()
+    public synchronized int getContextLockCount()
     {
         String ownerName = getLockReservationName();
-        LockOwnerInfo lockOwnerInfo = locks.get( ownerName );
+        LockOwnerInfo lockOwnerInfo = lockInfoMap.get( ownerName );
 
-        return lockOwnerInfo == null ? 0 : lockOwnerInfo.locks.size();
+        return lockOwnerInfo == null ? 0 : lockOwnerInfo.labels.size();
     }
 
-    synchronized void clearLocks()
+    public synchronized void clearLocks()
     {
-        locks.clear();
+        lockInfoMap.clear();
         this.dominantLockLevel = null;
         this.dominantOwner = null;
     }
@@ -235,7 +237,8 @@ final class LockOwner
     {
         private String ownerName = getLockReservationName();
 
-        private List<String> locks = Collections.synchronizedList( new ArrayList<>() );
+        private List<String> labels = Collections.synchronizedList( new ArrayList<>() );
+
         private LockLevel level;
 
         LockOwnerInfo( LockLevel level )
@@ -246,7 +249,8 @@ final class LockOwner
         @Override
         public String toString()
         {
-            return "LockOwnerInfo{" + "ownerName='" + ownerName + '\'' + ", locks=" + locks + ", level=" + level + '}';
+            return "LockOwnerInfo{" + "ownerName='" + ownerName + '\'' + ", labels=" + labels + ", level=" + level
+                            + '}';
         }
     }
 

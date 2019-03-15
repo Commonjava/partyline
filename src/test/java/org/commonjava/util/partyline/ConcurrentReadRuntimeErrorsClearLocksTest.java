@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ public class ConcurrentReadRuntimeErrorsClearLocksTest
     /*@formatter:off*/
     @BMRules( rules = {
             // When we try to init a new JoinableFile for INPUT, simulate an IOException from somewhere deeper in the stack.
-            @BMRule( name = "new JoinableFile error", targetClass = "JoinableFile", targetMethod = "<init>",
+            @BMRule( name = "new JoinableFile error", targetClass = "RandomAccessJF", targetMethod = "<init>",
                      targetLocation = "ENTRY",
                      condition = "$4 == false",
                      action = "debug(\"Throwing test exception.\"); "
@@ -66,7 +66,7 @@ public class ConcurrentReadRuntimeErrorsClearLocksTest
         final CountDownLatch readBeginLatch = new CountDownLatch( 3 );
         final CountDownLatch readEndLatch = new CountDownLatch( 3 );
 
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
         manager.startReporting( 5000, 5000 );
         final long start = System.currentTimeMillis();
 

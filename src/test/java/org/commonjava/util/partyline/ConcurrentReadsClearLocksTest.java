@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015 Red Hat, Inc. (jdcasey@commonjava.org)
+ * Copyright (C) 2015 Red Hat, Inc. (nos-devel@redhat.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ public class ConcurrentReadsClearLocksTest
         final CountDownLatch latch = new CountDownLatch( 4 );
         CountDownLatch readBeginLatch = new CountDownLatch( 3 );
         CountDownLatch readEndLatch = new CountDownLatch( 3 );
-        final JoinableFileManager manager = new JoinableFileManager();
+        final Partyline manager = getPartylineInstance();
         manager.startReporting( 5000, 5000 );
         final long start = System.currentTimeMillis();
 
