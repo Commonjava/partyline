@@ -14,6 +14,8 @@ import javax.transaction.NotSupportedException;
 import javax.transaction.RollbackException;
 import javax.transaction.SystemException;
 import javax.transaction.TransactionManager;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -40,7 +42,17 @@ public class InfinispanTransactionalGLM
     public InfinispanTransactionalGLM( Cache<String, GlobalLockOwner> lockCache )
     {
         this.lockCache = lockCache;
-        this.id = UUID.randomUUID().toString();
+        String id;
+        try
+        {
+            id = InetAddress.getLocalHost().getHostName(); // pod name if on Openshift
+        }
+        catch ( UnknownHostException e )
+        {
+            logger.warn( "Get hostname failed, fall back to UUID", e );
+            id = UUID.randomUUID().toString();
+        }
+        this.id = id;
     }
 
     @Override
