@@ -39,7 +39,7 @@
   </scm>
   
   <properties>
-    <weftVersion>1.13-SNAPSHOT</weftVersion>
+    <weftVersion>1.14</weftVersion>
     <infinispanVersion>9.4.7.Final</infinispanVersion>
     <projectOwner>Red Hat, Inc.</projectOwner>
     <projectEmail>nos-devel@redhat.com</projectEmail>
