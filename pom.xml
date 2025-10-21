@@ -40,7 +40,7 @@
   
   <properties>
     <weftVersion>1.14</weftVersion>
-    <infinispanVersion>9.4.7.Final</infinispanVersion>
+    <infinispanVersion>14.0.25.Final</infinispanVersion>
     <projectOwner>Red Hat, Inc.</projectOwner>
     <projectEmail>nos-devel@redhat.com</projectEmail>
     <javaVersion>1.8</javaVersion>
