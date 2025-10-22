@@ -17,11 +17,11 @@
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  
+
   <parent>
     <groupId>org.commonjava</groupId>
     <artifactId>commonjava</artifactId>
-    <version>13</version>
+    <version>21</version>
   </parent>
 
   <groupId>org.commonjava.util</groupId>
@@ -30,21 +30,22 @@
 
   <name>partyline</name>
   <inceptionYear>2015</inceptionYear>
-  
+
   <scm>
     <connection>scm:git:https://github.com/Commonjava/partyline.git</connection>
     <developerConnection>scm:git:git@github.com:Commonjava/partyline.git</developerConnection>
     <url>https://github.com/Commonjava/partyline</url>
     <tag>HEAD</tag>
   </scm>
-  
+
   <properties>
-    <weftVersion>1.14</weftVersion>
-    <infinispanVersion>9.4.7.Final</infinispanVersion>
+    <weftVersion>1.25</weftVersion>
+    <!-- Match the version currently being used by Indy -->
+    <infinispanVersion>9.4.24.Final</infinispanVersion>
     <projectOwner>Red Hat, Inc.</projectOwner>
     <projectEmail>nos-devel@redhat.com</projectEmail>
     <javaVersion>1.8</javaVersion>
-    <byteman.version>3.0.6</byteman.version>
+    <byteman.version>4.0.26</byteman.version>
     <test-forkCount>1</test-forkCount>
 
     <plugin.jacoco.skip>false</plugin.jacoco.skip>
@@ -55,7 +56,7 @@
       <dependency>
         <groupId>org.commonjava.boms</groupId>
         <artifactId>web-commons-bom</artifactId>
-        <version>21</version>
+        <version>31</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -100,7 +101,7 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
-  
+
   <dependencies>
     <dependency>
       <groupId>junit</groupId>
@@ -119,10 +120,6 @@
       <artifactId>logback-classic</artifactId>
     </dependency>
     <dependency>
-      <groupId>commons-lang</groupId>
-      <artifactId>commons-lang</artifactId>
-    </dependency>
-    <dependency>
       <groupId>org.jboss.byteman</groupId>
       <artifactId>byteman</artifactId>
     </dependency>
@@ -139,6 +136,10 @@
       <artifactId>byteman-bmunit</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.commonjava.cdi.util</groupId>
       <artifactId>weft</artifactId>
     </dependency>
@@ -153,10 +154,9 @@
     <dependency>
       <groupId>org.jboss.logging</groupId>
       <artifactId>jboss-logging</artifactId>
-      <version>3.3.0.Final</version>
     </dependency>
   </dependencies>
-  
+
   <build>
     <pluginManagement>
       <plugins>

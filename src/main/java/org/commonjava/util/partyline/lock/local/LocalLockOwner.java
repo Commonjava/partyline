@@ -28,8 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static org.apache.commons.lang.StringUtils.join;
-
 /**
  * Maintain information about threads with active locks on a file, along the current lock-level of the file (which
  * determines what additional operations can be added, once the initial operation is started). This class counts

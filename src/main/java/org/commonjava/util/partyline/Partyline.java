@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import static org.apache.commons.lang.StringUtils.join;
+import static org.apache.commons.lang3.StringUtils.join;
 
 import static org.commonjava.util.partyline.lock.LockLevel.read;
 import static org.commonjava.util.partyline.lock.local.LocalLockOwner.getLockReservationName;
