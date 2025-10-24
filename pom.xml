@@ -44,7 +44,7 @@
     <infinispanVersion>9.4.24.Final</infinispanVersion>
     <projectOwner>Red Hat, Inc.</projectOwner>
     <projectEmail>nos-devel@redhat.com</projectEmail>
-    <javaVersion>1.8</javaVersion>
+    <javaVersion>11</javaVersion>
     <byteman.version>4.0.26</byteman.version>
     <test-forkCount>1</test-forkCount>
 
