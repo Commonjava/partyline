@@ -165,8 +165,6 @@
           <configuration>
             <detectOfflineLinks>false</detectOfflineLinks>
             <additionalparam>-Xdoclint:none</additionalparam>
-            <doclint>none</doclint>
-            <source>8</source>
           </configuration>
         </plugin>
         <plugin>
