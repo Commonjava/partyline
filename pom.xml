@@ -33,7 +33,7 @@
 
   <scm>
     <connection>scm:git:https://github.com/Commonjava/partyline.git</connection>
-    <developerConnection>scm:git:git@github.com:Commonjava/partyline.git</developerConnection>
+    <developerConnection>scm:git:https://github.com/Commonjava/partyline.git</developerConnection>
     <url>https://github.com/Commonjava/partyline</url>
     <tag>HEAD</tag>
   </scm>
