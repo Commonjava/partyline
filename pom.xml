@@ -39,7 +39,7 @@
   </scm>
 
   <properties>
-    <weftVersion>1.25</weftVersion>
+    <weftVersion>1.26</weftVersion>
     <!-- Match the version currently being used by Indy -->
     <infinispanVersion>9.4.24.Final</infinispanVersion>
     <projectOwner>Red Hat, Inc.</projectOwner>
@@ -56,7 +56,7 @@
       <dependency>
         <groupId>org.commonjava.boms</groupId>
         <artifactId>web-commons-bom</artifactId>
-        <version>31</version>
+        <version>34</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>

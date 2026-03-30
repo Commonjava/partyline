@@ -61,7 +61,7 @@ public class ManyReadersWithPreExistingWriterTest
 
     private ExecutorService executor =
                     new PoolWeftExecutorService( "test", (ThreadPoolExecutor) Executors.newCachedThreadPool(), 30,
-                                                 10.0f, false, null, null );
+                                                 10.0f, false );
 
     private final Partyline mgr = getPartylineInstance();
 
