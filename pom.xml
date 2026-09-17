@@ -41,7 +41,7 @@
   <properties>
     <weftVersion>1.26</weftVersion>
     <!-- Match the version currently being used by Indy -->
-    <infinispanVersion>9.4.24.Final</infinispanVersion>
+    <infinispanVersion>14.0.25.Final</infinispanVersion>
     <projectOwner>Red Hat, Inc.</projectOwner>
     <projectEmail>nos-devel@redhat.com</projectEmail>
     <javaVersion>11</javaVersion>
